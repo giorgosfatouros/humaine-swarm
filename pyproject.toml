@@ -1,0 +1,19 @@
+[tool.poetry]
+name = "humaine-swarm"
+version = "0.1.0"
+description = "Swarm Learning between human and AI models orchestrated by LLM agents."
+authors = ["George Fatouros <gfatouros@innov-acts.com>"]
+license = "Apache License 2.0"
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.10"
+chainlit = "^1.2.0"
+openai = "^1.51.2"
+swarm = {git = "https://github.com/openai/swarm.git"}
+langchain-community = "^0.3.2"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
