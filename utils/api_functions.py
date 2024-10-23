@@ -1,5 +1,5 @@
 from openai import AsyncOpenAI
-from literalai import AsyncLiteralClient
+# from literalai import AsyncLiteralClient
 import asyncio
 from typing import Dict, Any, List, Optional
 import json
@@ -11,7 +11,7 @@ import logging
 logger = setup_logging('API-FUNCTIONS', level=logging.INFO)
 
 client = AsyncOpenAI()
-lai = AsyncLiteralClient()
+# lai = AsyncLiteralClient()
 
 
 
@@ -21,14 +21,14 @@ async def execute_function(function_name: str, arguments: Dict):
     is_async = asyncio.iscoroutinefunction(func)
 
     # Use lai.step context manager
-    with lai.step(name=function_name, type="tool") as step:
-        if is_async:
-            result = await func(**arguments)
-        else:
-            result = func(**arguments)
+    # with lai.step(name=function_name, type="tool") as step:
+    if is_async:
+        result = await func(**arguments)
+    else:
+        result = func(**arguments)
 
-        step.metadata = {"arguments": arguments}
-        step.tags = ["function_call"]
+    # step.metadata = {"arguments": arguments}
+    # step.tags = ["function_call"]
 
     return result
 

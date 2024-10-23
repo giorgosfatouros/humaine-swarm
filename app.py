@@ -1,106 +1,68 @@
 import asyncio
-import logging
 from openai import AsyncOpenAI
 import chainlit as cl
 from chainlit import User
-from typing import Dict, Optional
-from utils.config import read_prompt
-from agents.code import function_map
-from agents.definition import functions
-import os, json
+from classes.user_handler import UserSessionManager
+import json
+import logging
+from utils.starters import set_starters
+from agents.code import function_map, read_prompt
+from utils.helper_functions import setup_logging, decode_jwt, extract_token_from_headers, extract_user_from_payload
+from utils.api_functions import send_follow_up_questions
+from utils.config import settings
+# from literalai import AsyncLiteralClient
+from typing import Optional, Dict
+from chainlit.types import ThreadDict
+
+# Setup logging
+logger = setup_logging('CHAT', level=logging.ERROR)
+logging.getLogger("httpx").setLevel("WARNING")
 
 client = AsyncOpenAI()
+# lai = AsyncLiteralClient()
+# lai.instrument_openai()
 
-settings = {
-    "model": "gpt-4o-2024-08-06",
-    "temperature": 0,
-    "max_tokens": 8000,
-    "top_p": 1,
-    "frequency_penalty": 0,
-    "presence_penalty": 0,
-    # "parallel_tool_calls": True,
-    # "tools": functions,
-    # "tool_choice": "auto",    
-    "functions": functions,
-    "function_call": "auto",
-    "stream": True
-}
+system_prompt = read_prompt('system')
 
-system_prompt = read_prompt("system")
+# Action callback to handle follow-up questions
+@cl.action_callback("follow_up_question")
+async def on_follow_up_question(action):
+    await main(cl.Message(content=action.value))
+    await action.remove()
 
+@cl.password_auth_callback
+async def auth_callback(username: str, password: str):
+    # Fetch the user matching username from your database
+    # and compare the hashed password with the value stored in the database
+    # if (username, password) == ("george", "admin"):
+    return cl.User(
+            identifier="gfatouros@innov-acts.com", metadata={"role": "admin", "email": "gfatouros@innov-acts.com", "provider": "credentials"}
+        )
+  
 
-
-# @cl.oauth_callback
-# def oauth_callback(
-#     provider_id: str,
-#     token: str,
-#     raw_user_data: Dict[str, str],
-#     default_user: cl.User):
-#     logging.info(f"OAuth callback called with provider_id: {provider_id}, token: {token}, raw_user_data: {raw_user_data}")
-#     logging.info(f"Default user: {default_user.identifier}")
-#     return default_user
-
-
+# Chat initialization
 @cl.on_chat_start
 async def start_chat():
-    cl.user_session.set("function_call_count", 0)
-    cl.user_session.set("message_history", [])
+    # Initialize the system prompt message
     init_message = [{"role": "system", "content": system_prompt}]
-    cl.user_session.set("message_history", init_message)    
-    await upload_file(show_welcome=True)
+    UserSessionManager.set_message_history(init_message)
 
+    # Retrieve the user from the session
+    user = cl.user_session.get("user")
 
+    # Set the user ID in the session and in LiterAI
+    UserSessionManager.set_user_id(user.identifier)
+    # participant = await lai.api.get_or_create_user(identifier=user.identifier)
 
-async def upload_file(show_welcome=False):
-    if show_welcome:
-        app_user = cl.user_session.get('user')
-        image_path = "public/wealthcraft.png"  # Adjust the path as needed
-        welcome_image = cl.Image(name="WealthCraft+ Logo", path=image_path, display="page", size="small")
+    # Print stored info for debugging
+    logger.info(UserSessionManager.print_stored_info())
 
-        await cl.Message(
-            content="",
-            elements=[welcome_image],
-        ).send()
+@cl.on_chat_resume
+async def on_chat_resume(thread: ThreadDict):
+    thread_id = thread['id']
+    logger.info(f"Thread ID on resume: {thread_id}")
 
-        welcome_message = f"""
-### 👋 Welcome to **WealthCraft+** 👋
-Your advanced AI assistant for crafting professional, MIFID compliant, and insightful investment proposals. \n\n
-I am here to streamline your workflow and support you in delivering tailored financial strategies for high-net-worth clients. Simply upload the portfolio statement, and I'll take care of the analysis, gathering relevant market data, and providing a comprehensive overview. Together, we'll ensure that your proposals align with client objectives, risk profiles, and the latest macroeconomic trends. 
-    """ 
-
-    file_message = await cl.AskFileMessage(
-        content=welcome_message,
-        accept=["application/pdf"],
-        max_size_mb=10
-    ).send()
-    
-    if file_message:
-        file = file_message
-
-        # Send a loading message
-        loading_message = await cl.Message(content="Loading, please wait...").send()    
-        client_data = ClientData()
-        client_data.process_statement(file[0].path)
-        print('================================================================================================================')
-        result = await client_data.initialize_portfolio()
-
-        if result['status'] == "error":
-            errors = result['errors']
-            msg = cl.Message(content=f"I have encountered the following errors while processing the statement: {errors}.")
-        else:
-            cl.user_session.set("client_data", client_data)
-            msg = cl.Message(content=f"I have proceed the statement. Please proceed with your requests.")
-
-        await msg.send()
-        await loading_message.remove()  # Remove the loading message after upload is complete        
-
-        return {"success": True, "path": file[0].path}
-    else:
-        await cl.Message(content="No file was uploaded. You can still ask questions or discuss investment strategies.").send()
-        return {"success": False}
-    
-
-
+# Process assistant's response stream and handle function calls
 async def process_stream(stream, message_history, msg):
     function_call_data = None
 
@@ -124,6 +86,7 @@ async def process_stream(stream, message_history, msg):
     if function_call_data:
         await process_function_call(function_call_data, message_history, msg)
 
+# @lai.step(name="Function Processor", type="tool")
 async def process_function_call(function_call_data, message_history, msg):
     try:
         function_name = function_call_data["name"]
@@ -133,88 +96,63 @@ async def process_function_call(function_call_data, message_history, msg):
             await msg.stream_token(f"Unknown function: {function_name}\n")
             return
         
-        function_call_count = cl.user_session.get("function_call_count", 0)
-        if function_call_count >= 7:
-            await msg.stream_token("Maximum number of function calls reached. Please rephrase your request.\n")
-            await msg.send()
-            return
 
-        logging.info(f"Executing function: {function_name} with arguments: {arguments}")
+        logger.info(f"Executing function: {function_name} with arguments: {arguments}")
         
-        client_data = cl.user_session.get("client_data")
-        func = function_map[function_name]['function']
-        custom_llm_prompt = function_map[function_name]['custom_llm_prompt']
-
+        func = function_map[function_name]
         result = await func(**arguments) if asyncio.iscoroutinefunction(func) else func(**arguments)
 
-        cl.user_session.set("function_call_count", function_call_count + 1)
-        
-        # Create a temporary message history for the follow-up request
-        # temp_message_history = message_history.copy()
-        message_history.append({"role": "function", "name": function_name, "content": custom_llm_prompt + "\n\n" + json.dumps(result)})
-        
-        # print(f"\n\n\ntemp_message_history: {temp_message_history}")
+        UserSessionManager.increment_function_call_count()
 
-        follow_up_stream = await client.chat.completions.create(messages= message_history, **settings)
+        message_history.append({"role": "function", "name": function_name, "content": json.dumps(result)})
+        UserSessionManager.set_message_history(message_history)
+
+        follow_up_stream = await client.chat.completions.create(messages=message_history, **settings)
 
         await process_stream(follow_up_stream, message_history, msg)
         await msg.send()
 
     except Exception as e:
-        error_message = f"Error in {function_name}: {str(e)}"
-        logging.error(error_message)
-        await msg.stream_token(f"{error_message}\n")
+        logger.error(f"Error in {function_name}: {str(e)}")
+        await msg.stream_token("We are currently experiencing high traffic. Please try again later.\n")
         await msg.send()
 
-def manage_chat_history(message_history):      
-    total_length = sum(len(json.dumps(msg)) for msg in message_history)
-    while total_length > 100000:
-        if len(message_history) > 2:
-            removed_msg = message_history.pop(2)  # Remove the third message (index 2)
-            total_length -= len(json.dumps(removed_msg))
-            logging.info(f"Reducing conversation history. Current length: {total_length} characters")
-        else:
-            break  # If we only have two or fewer messages, stop removing
-    
-    return message_history
-
-
+# Main function that handles user messages
 @cl.on_message
 async def main(message: cl.Message):
-    cl.user_session.set("function_call_count", 0)
-
-    logging.info(f"\n\n===================== THIS IS A NEW MESSAGE REQUEST ======================")  
-    message_history = cl.user_session.get("message_history")
-
-    # create meta_prompt
-    # meta_prompt = await create_meta_prompt(message.content)
-    meta_prompt = message.content
-    # append meta_prompt to message_history
-    message_history.append({"role": "user", "content": meta_prompt})
-    print(f"MESSAGE HISTORY: {message_history}")
-
-    completion = await client.chat.completions.create(
-        messages=message_history,
-        **settings
-    )
-    temp_history = message_history.copy()
+    # Increment the function call count for the current session
+    UserSessionManager.increment_function_call_count()
     
+    thread_id = UserSessionManager.get_thread_id()
+
+    # async with lai.run(name="Assistant Response", thread_id=thread_id):
+    # Send an empty message to acknowledge receipt
     msg = cl.Message(content="")
     await msg.send()
+
+    logger.info(f"New message from user {UserSessionManager.get_user_id()}")
+
+    # Get the message history and append the new user message
+    message_history = UserSessionManager.get_message_history()
+    message_history.append({"role": "user", "content": message.content})
+
+    # Create the OpenAI chat completion with the message history
+    completion = await client.chat.completions.create(messages=message_history, **settings)
+
+    # Copy the message history for further use
+    temp_history = message_history.copy()
+
+    # Process the completion stream, attaching it to the current session and message
     await process_stream(completion, temp_history, msg)
+    await msg.update()
     
     # Only append the assistant's response if it's not empty
     if msg.content.strip():
         message_history.append({"role": "assistant", "content": msg.content})
-    
-    message_history = manage_chat_history(message_history)
-    cl.user_session.set("message_history", message_history)
 
+    # Save the updated message history in the session
+    UserSessionManager.set_message_history(message_history)
 
-    await msg.update()
-
-    final_count = cl.user_session.get("function_call_count")
-    message_history_length = len(cl.user_session.get("message_history"))
+    # Log message details for debugging
     total_length = sum(len(json.dumps(msg)) for msg in message_history)
-    print(f"       ============ MESSAGE REQUEST FINISHED with {final_count} function calls and {message_history_length} messages in history with total length of {total_length} characters =============")
-
+    logger.info(f"Message finished with {UserSessionManager.get_function_call_count()} function calls and {len(message_history)} messages in history with total length of {total_length} characters")
