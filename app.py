@@ -6,7 +6,7 @@ from classes.user_handler import UserSessionManager
 import json
 import logging
 from utils.starters import set_starters
-from agents.code import function_map, read_prompt
+from agents.code import function_map, read_prompt, retrieve_pubmed_articles, process_and_store_articles, retrieve_from_pinecone
 from utils.helper_functions import setup_logging, decode_jwt, extract_token_from_headers, extract_user_from_payload
 from utils.api_functions import send_follow_up_questions
 from utils.config import settings
@@ -125,7 +125,6 @@ async def main(message: cl.Message):
     
     thread_id = UserSessionManager.get_thread_id()
 
-    # async with lai.run(name="Assistant Response", thread_id=thread_id):
     # Send an empty message to acknowledge receipt
     msg = cl.Message(content="")
     await msg.send()
@@ -135,8 +134,37 @@ async def main(message: cl.Message):
     # Get the message history and append the new user message
     message_history = UserSessionManager.get_message_history()
     message_history.append({"role": "user", "content": message.content})
+    import asyncio
 
-    # Create the OpenAI chat completion with the message history
+    # Step 1: Retrieve PubMed articles
+    retrieval_result = retrieve_pubmed_articles("breast cancer treatment", num_articles=3)
+
+    if retrieval_result["status"] == "success":
+        article_urls = retrieval_result["urls"]
+        if article_urls:
+            # Step 2: Process and store articles
+            results = asyncio.run(process_and_store_articles(article_urls))
+            print("Processing Results:", results)
+
+            # Step 3: Test retrieve_from_pinecone function
+            if results["status"] == "completed" and len(results["processed_articles"]) > 0:
+                query = "breast cancer treatment"
+                print(f"Testing retrieval from Pinecone with query: '{query}'")
+                retrieval_test_result = retrieve_from_pinecone(query, top_k=3)
+
+                if retrieval_test_result["status"] == "success":
+                    print("Retrieved Texts from Pinecone:")
+                    for result in retrieval_test_result["results"]:
+                        print(f"Source: {result['source']}")
+                        print(f"Text: {result['text']}")
+                else:
+                    print(f"Error retrieving from Pinecone: {retrieval_test_result['message']}")
+        else:
+            print("No articles found to process.")
+    else:
+        print("Failed to retrieve articles:", retrieval_result.get("message"))
+        
+        # If no retrieval is needed, continue with the regular completion handling
     completion = await client.chat.completions.create(messages=message_history, **settings)
 
     # Copy the message history for further use

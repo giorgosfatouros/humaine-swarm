@@ -25,17 +25,10 @@ Settings.embed_model = OpenAIEmbedding(model="text-embedding-3-small")
 pc = Pinecone(api_key=os.environ["PINECONE_API_KEY"])
 # hyde = HyDEQueryTransform(include_original=True)
 
-# rag = RAG()
+# for rag 
 vector_store = PineconeVectorStore(pinecone_index=pc.Index("sec-filings"))
-
-
-# Create the index
-index_filings = VectorStoreIndex.from_vector_store(vector_store=vector_store_filings)
-index_earnings_calls = VectorStoreIndex.from_vector_store(vector_store=vector_store_earnings_calls)
-index_macro = VectorStoreIndex.from_vector_store(vector_store=vector_store_macro)
-index_crypto = VectorStoreIndex.from_vector_store(vector_store=vector_store_crypto)
-
-retriever_filings = VectorIndexRetriever(index=index_filings, similarity_top_k=15)
+index = VectorStoreIndex.from_vector_store(vector_store=vector_store)
+retriever_filings = VectorIndexRetriever(index=index, similarity_top_k=15)
 
 function_map = {
     # "query_router": query_router,
@@ -43,4 +36,6 @@ function_map = {
     # "analyze_exam": analyze_exam,
     "retrieve_pubmed_research": retrieve_pubmed_articles,
     # "generate_follow_up_questions": generate_follow_up_questions
+  
+
 }

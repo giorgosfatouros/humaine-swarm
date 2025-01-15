@@ -11,8 +11,13 @@ settings = {
     # "parallel_tool_calls": True,
     # "tools": functions,
     # "tool_choice": "auto",    
+<<<<<<< HEAD
     "functions": functions,
     "function_call": "auto",
+=======
+    #"functions": functions,
+    #"function_call": "auto",
+>>>>>>> origin/main
     "stream": True
 }
 
