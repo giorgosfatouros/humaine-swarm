@@ -12,7 +12,7 @@ from langchain_openai.embeddings import OpenAIEmbeddings
 logger = setup_logging('Data Injection', level=logging.INFO)
 
 EMBED_MODEL = "text-embedding-3-small"
-INDEX_NAME = 'humaine-test'
+INDEX_NAME = 'humaine'
 PINECONE_API_KEY = os.getenv('PINECONE_API_KEY')
 pc = Pinecone(api_key=PINECONE_API_KEY)
 embedding_model = OpenAIEmbeddings(model=EMBED_MODEL)
@@ -24,7 +24,7 @@ def process_data():
     logger.info("Starting data processing")
     
     # Get and process reports
-    df = get_reports()
+    df = get_deliverables()
     if df.empty:
         logger.warning("No data to process")
         return
@@ -41,12 +41,12 @@ def get_embeddings(text_list) -> List[List[float]]:
         logger.error(f"Error generating embeddings: {e}")
         return []
 
-def get_reports():
+def get_deliverables():
     """
     Load and process documents from local ./docs directory
     """
     try:
-        docs_dir = './docs'
+        docs_dir = '.docs'
         if not os.path.exists(docs_dir):
             logger.error(f"Directory {docs_dir} does not exist")
             return pd.DataFrame()
@@ -57,25 +57,16 @@ def get_reports():
             for file in files:
                 file_path = os.path.join(root, file)
                 try:
-                    # Read the file content
-                    with open(file_path, 'r', encoding='utf-8') as f:
-                        content = f.read()
-                    
-                    # Extract organization from directory structure (optional)
-                    org = os.path.basename(os.path.dirname(file_path))
-                    if org == 'docs':  # If file is directly in docs folder
-                        org = 'Default'
+                    from langchain_community.document_loaders import PyPDFLoader
+
+                    loader = PyPDFLoader(file_path)
+                    pages = loader.load()  # Load all pages at once
+                    content = " ".join([page.page_content for page in pages])  # Use page_content instead of extract_text
                     
                     # Use filename as title (without extension)
                     title = os.path.splitext(file)[0]
                     
-                    data.append({
-                        'Organization': org,
-                        'Title': title,
-                        'cleaned_text': content,
-                        'Link': file_path,  # Using file path as link for reference
-                        'summary': ''  # Empty summary by default
-                    })
+                    data.append({'title': title, 'text': content})
                     
                 except Exception as e:
                     logger.error(f"Error processing file {file_path}: {str(e)}")
@@ -87,11 +78,9 @@ def get_reports():
             
         df = pd.DataFrame(data)
         
-        # Clean and process text
-        df['cleaned_text'] = df['cleaned_text'].apply(lambda x: x.replace('\n', ' '))
-        
-        # Generate unique IDs using Title and Organization
-        df['id'] = df['Organization'].str.replace(' ', '') + '_' + df['Title'].str.replace(' ', '').str.encode('ascii', 'ignore').str.decode('ascii')
+        # Clean title to ensure ASCII compatibility
+        df['id'] = df['title'].apply(lambda x: ''.join(char for char in x if ord(char) < 128))
+        df['id'] = df['id'].str.replace('[^a-zA-Z0-9-]', '_', regex=True)  # Replace non-alphanumeric chars with underscore
 
         # Chunk the documents
         chunked_data = chunk_documents(df)
@@ -118,11 +107,14 @@ def chunk_documents(df):
     chunked_data = []
     text_splitter = SemanticChunker(
         embedding_model,
-        breakpoint_threshold_type="gradient"
+        breakpoint_threshold_type="gradient",
+        min_chunk_size=100,
+        breakpoint_threshold_amount=0.8
+
     )
 
     for idx, row in df.iterrows():
-        text = row['cleaned_text']
+        text = row['text']
         if not text:
             continue
         
@@ -130,15 +122,12 @@ def chunk_documents(df):
             docs = text_splitter.create_documents([text])
             
             for i, doc in enumerate(docs):
-                chunk_id = f"{row['id']}_chunk_{i}"
+                # Create ASCII-safe chunk ID
+                chunk_id = f"{row['id']}_chunk_{i}".replace(' ', '_')
                 chunked_data.append({
                     'id': chunk_id,
                     'chunk_text': doc.page_content,
-                    'Organization': row['Organization'],
-                    'Title': row['Title'],
-                    'Link': row['Link'],
-                    'summary': row.get('summary', ''),
-                    'source_id': row['id']
+                    'title': row['title']
                 })
         except Exception as e:
             logger.error(f"Error chunking document {row['id']}: {str(e)}")
@@ -163,14 +152,11 @@ def save_to_pinecone(df):
             i_end = min(i+batch_size, len(df))
             ids_batch = df['id'][i: i_end]
             
+            # Include title and chunk text in metadata
             metadata = [
                 {
-                    "Organization": df.loc[j, "Organization"],
-                    "Title": df.loc[j, "Title"],
-                    "Link": df.loc[j, "Link"],
-                    "summary": df.loc[j, "summary"],
-                    "text": df.loc[j, "chunk_text"],
-                    "source_id": df.loc[j, "source_id"]
+                    "title": df.loc[j, "title"],
+                    "text": df.loc[j, "chunk_text"]
                 }
                 for j in range(i, i_end)
             ]

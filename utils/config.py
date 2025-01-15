@@ -9,17 +9,12 @@ settings = {
     "frequency_penalty": 0,
     "presence_penalty": 0.6,
     # "parallel_tool_calls": True,
-    # "tools": functions,
-    # "tool_choice": "auto",    
-<<<<<<< HEAD
-    "functions": functions,
-    "function_call": "auto",
-=======
-    #"functions": functions,
-    #"function_call": "auto",
->>>>>>> origin/main
+    "tools": functions,
+    "tool_choice": "auto",    
+    # "functions": functions,
+    # "function_call": "auto",
     "stream": True
 }
 
-MAX_CONTEXT_LENGTH = 32000  # For models with an 32K context window
+MAX_CONTEXT_LENGTH = 60000  
 MAX_INPUT_TOKENS = MAX_CONTEXT_LENGTH - settings["max_tokens"]

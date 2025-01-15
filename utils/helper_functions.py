@@ -108,6 +108,14 @@ def manage_chat_history(message_history):
     return message_history
 
 
+def rag_extract_deliverables(retrieved_nodes):
+    return [
+        {
+            "text": f"{node.get_content()}",
+       
+        }
+        for node in retrieved_nodes
+    ]
 
 # def create_plot(data_dict):
 #     """

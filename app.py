@@ -6,7 +6,7 @@ from classes.user_handler import UserSessionManager
 import json
 import logging
 from utils.starters import set_starters
-from agents.code import function_map, read_prompt, retrieve_pubmed_articles, process_and_store_articles, retrieve_from_pinecone
+from agents.code import function_map, read_prompt
 from utils.helper_functions import setup_logging, decode_jwt, extract_token_from_headers, extract_user_from_payload
 from utils.api_functions import send_follow_up_questions
 from utils.config import settings
@@ -62,40 +62,83 @@ async def on_chat_resume(thread: ThreadDict):
     thread_id = thread['id']
     logger.info(f"Thread ID on resume: {thread_id}")
 
-# Process assistant's response stream and handle function calls
+# Process assistant's response stream and handle tool calls
 async def process_stream(stream, message_history, msg):
-    function_call_data = None
+    current_tool_call = None
+    tool_calls_data = []
 
     async for part in stream:
         delta = part.choices[0].delta
 
-        if delta.function_call:
-            if function_call_data is None:
-                function_call_data = {"name": delta.function_call.name, "arguments": ""}
-            function_call_data["arguments"] += delta.function_call.arguments or ""
+        if delta.tool_calls:
+            tool_call = delta.tool_calls[0]  # Handle the first tool call in the list
+            logger.info(f"Tool call: {tool_call}")
+            
+            if tool_call.index is not None and tool_call.function.name:  # New tool call starting
+                current_tool_call = {
+                    "id": tool_call.id,
+                    "type": tool_call.type,
+                    "function": {
+                        "name": tool_call.function.name,
+                        "arguments": ""
+                    }
+                }
+                tool_calls_data.append(current_tool_call)
+            
+            if current_tool_call and tool_call.function.arguments:
+                current_tool_call["function"]["arguments"] += tool_call.function.arguments
+
         elif delta.content:
-            if function_call_data:
+            if current_tool_call:
                 try:
-                    json.loads(function_call_data["arguments"])
-                    await process_function_call(function_call_data, message_history, msg)
-                    function_call_data = None
+                    # Only process if we have complete argument data
+                    args = current_tool_call["function"]["arguments"]
+                    if args.strip() and args[-1] == "}":  # Check if arguments string is complete
+                        json.loads(args)  # Validate JSON
+                        await process_function_call(
+                            {
+                                "name": current_tool_call["function"]["name"],
+                                "arguments": args
+                            },
+                            message_history,
+                            msg
+                        )
+                        current_tool_call = None
                 except json.JSONDecodeError:
+                    # Continue accumulating if JSON is incomplete
                     pass
             await msg.stream_token(delta.content)
 
-    if function_call_data:
-        await process_function_call(function_call_data, message_history, msg)
+    # Process any remaining tool call after the stream ends
+    if current_tool_call and current_tool_call["function"]["name"]:  # Only process if we have a valid function name
+        try:
+            args = current_tool_call["function"]["arguments"]
+            json.loads(args)  # Validate JSON
+            logger.info(f"Processing final tool call: {current_tool_call}")
+            await process_function_call(
+                {
+                    "name": current_tool_call["function"]["name"],
+                    "arguments": args
+                },
+                message_history,
+                msg
+            )
+        except json.JSONDecodeError as e:
+            logger.error(f"Invalid JSON in final tool call: {e}")
 
 # @lai.step(name="Function Processor", type="tool")
+@cl.step(name="Agent Processor", type="tool")
 async def process_function_call(function_call_data, message_history, msg):
+    logger.info(f"Function call data: {function_call_data}")
     try:
         function_name = function_call_data["name"]
         arguments = json.loads(function_call_data["arguments"])
         
+        logger.debug(f"Function call data: {function_call_data}")
+        
         if function_name not in function_map:
             await msg.stream_token(f"Unknown function: {function_name}\n")
             return
-        
 
         logger.info(f"Executing function: {function_name} with arguments: {arguments}")
         
@@ -117,15 +160,18 @@ async def process_function_call(function_call_data, message_history, msg):
         await msg.stream_token("We are currently experiencing high traffic. Please try again later.\n")
         await msg.send()
 
+
 # Main function that handles user messages
 @cl.on_message
+@cl.step(name="HumAIne Swarm", type="run", show_input=False)
 async def main(message: cl.Message):
     # Increment the function call count for the current session
     UserSessionManager.increment_function_call_count()
     
     thread_id = UserSessionManager.get_thread_id()
 
-    # Send an empty message to acknowledge receipt
+    # async with lai.run(name="Assistant Response", thread_id=thread_id):
+        # Send an empty message to acknowledge receipt
     msg = cl.Message(content="")
     await msg.send()
 
@@ -134,37 +180,8 @@ async def main(message: cl.Message):
     # Get the message history and append the new user message
     message_history = UserSessionManager.get_message_history()
     message_history.append({"role": "user", "content": message.content})
-    import asyncio
 
-    # Step 1: Retrieve PubMed articles
-    retrieval_result = retrieve_pubmed_articles("breast cancer treatment", num_articles=3)
-
-    if retrieval_result["status"] == "success":
-        article_urls = retrieval_result["urls"]
-        if article_urls:
-            # Step 2: Process and store articles
-            results = asyncio.run(process_and_store_articles(article_urls))
-            print("Processing Results:", results)
-
-            # Step 3: Test retrieve_from_pinecone function
-            if results["status"] == "completed" and len(results["processed_articles"]) > 0:
-                query = "breast cancer treatment"
-                print(f"Testing retrieval from Pinecone with query: '{query}'")
-                retrieval_test_result = retrieve_from_pinecone(query, top_k=3)
-
-                if retrieval_test_result["status"] == "success":
-                    print("Retrieved Texts from Pinecone:")
-                    for result in retrieval_test_result["results"]:
-                        print(f"Source: {result['source']}")
-                        print(f"Text: {result['text']}")
-                else:
-                    print(f"Error retrieving from Pinecone: {retrieval_test_result['message']}")
-        else:
-            print("No articles found to process.")
-    else:
-        print("Failed to retrieve articles:", retrieval_result.get("message"))
-        
-        # If no retrieval is needed, continue with the regular completion handling
+    # Create the OpenAI chat completion with the message history
     completion = await client.chat.completions.create(messages=message_history, **settings)
 
     # Copy the message history for further use
@@ -172,11 +189,13 @@ async def main(message: cl.Message):
 
     # Process the completion stream, attaching it to the current session and message
     await process_stream(completion, temp_history, msg)
-    await msg.update()
-    
-    # Only append the assistant's response if it's not empty
     if msg.content.strip():
         message_history.append({"role": "assistant", "content": msg.content})
+        # plotly_figure = await generate_plotly_figure(msg.content)
+        # if plotly_figure:
+        #     msg.elements = plotly_figure
+            
+    await msg.update()
 
     # Save the updated message history in the session
     UserSessionManager.set_message_history(message_history)
@@ -184,3 +203,9 @@ async def main(message: cl.Message):
     # Log message details for debugging
     total_length = sum(len(json.dumps(msg)) for msg in message_history)
     logger.info(f"Message finished with {UserSessionManager.get_function_call_count()} function calls and {len(message_history)} messages in history with total length of {total_length} characters")
+
+    # Generate follow-up questions for the user
+    # follow_up_questions = await generate_follow_up_questions(message_history)
+    
+    # Send the follow-up questions to the UI
+    # await send_follow_up_questions(follow_up_questions)
