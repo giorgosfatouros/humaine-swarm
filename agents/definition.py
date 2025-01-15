@@ -38,23 +38,23 @@ functions = [
     #     }
     # },
     
-    # {
-    #     "type": "function",
-    #     "function": {
-    #         "name": "retrieve_pubmed_research",
-    #         "description": "Retrieve relevant research articles on breast cancer from PubMed.",
-    #         "parameters": {
-    #             "type": "object",
-    #             "properties": {
-    #                 "query": {
-    #                     "type": "string",
-    #                     "description": "Search query for retrieving breast cancer research articles."
-    #                 },
-    #             },
-    #             "required": ["query"],
-    #             "additionalProperties": False,
-    #         },
-    #     }
-    # }
+    {
+        "type": "function",
+        "function": {
+            "name": "retrieve_pubmed_research",
+            "description": "Retrieve relevant research articles on breast cancer from PubMed.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Search query for retrieving breast cancer research articles."
+                    },
+                },
+                "required": ["query"],
+                "additionalProperties": False,
+            },
+        }
+    }
 ]
 

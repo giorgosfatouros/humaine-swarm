@@ -15,7 +15,7 @@ from typing import Optional, Dict
 from chainlit.types import ThreadDict
 
 # Setup logging
-logger = setup_logging('CHAT', level=logging.ERROR)
+logger = setup_logging('CHAT', level=logging.INFO)
 logging.getLogger("httpx").setLevel("WARNING")
 
 client = AsyncOpenAI()

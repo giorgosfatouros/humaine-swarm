@@ -1,99 +1,46 @@
 import requests
 import json
 import sqlite3
+import os
 from datetime import datetime
-from langchain_community.retrievers import PubMedRetriever
+import chainlit as cl
+
+from llama_index.vector_stores.pinecone import PineconeVectorStore
+from llama_index.core import VectorStoreIndex, StorageContext
+from llama_index.core.retrievers import VectorIndexRetriever
+# from llama_index.core.indices.query.query_transform.base import HyDEQueryTransform
+# from llama_index.core.query_engine import TransformQueryEngine
+from llama_index.core.query_engine import RetrieverQueryEngine
+from pinecone.grpc import PineconeGRPC as Pinecone
+from llama_index.core import Settings
+from llama_index.llms.openai import AsyncOpenAI, OpenAI
+from llama_index.embeddings.openai import OpenAIEmbedding
+from llama_index.core.vector_stores.types import MetadataInfo, VectorStoreInfo
 
 
+# Set up the LLM
+Settings.llm  = OpenAI(model="gpt-4o-mini", max_tokens=4096, temperature=0)
+Settings.embed_model = OpenAIEmbedding(model="text-embedding-3-small")
 
-def read_prompt(type: str):
-    current_date = datetime.now().strftime("%Y-%m-%d")
-    
-    if type == "research":
-        with open('prompts/research_agent.md', 'r') as file:
-            prompt = file.read()
-    elif type == "mri":
-        with open('prompts/mri_agent.md', 'r') as file:
-            prompt = file.read()
-    elif type == "exam":
-        with open('prompts/exams_agent.md', 'r') as file:
-            return file.read()
-    else:
-        with open('prompts/system.md', 'r') as file:
-            prompt = file.read()
-    
-    update_info = f"\n\n*Note: Today's date is {current_date}.*\n\nWhen you receive function results, incorporate them into your responses to provide accurate and helpful information to the user."
-    
-    prompt += update_info
-    return prompt
+pc = Pinecone(api_key=os.environ["PINECONE_API_KEY"])
+# hyde = HyDEQueryTransform(include_original=True)
 
-# This is the MRI classification function that the model can call
-def classify_mri(image: bytes) -> dict:
-    """
-    Classify MRI images by sending them to an external model API for breast cancer diagnosis.
-    Returns the classification result in JSON format.
-    """
-    # Example external API call to classify MRI images
-    try:
-        # Assuming the external service requires a POST request
-        files = {'image': image}
-        response = requests.post("https://example.com/classify_mri", files=files)
-        
-        # Parse the response
-        if response.status_code == 200:
-            classification_result = response.json()
-            return {"status": "success", "result": classification_result}
-        else:
-            return {"status": "error", "message": f"Failed to classify MRI: {response.status_code}"}
-    
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
+# rag = RAG()
+vector_store = PineconeVectorStore(pinecone_index=pc.Index("sec-filings"))
 
 
-# This is the function to analyze a breast cancer exam PDF
-def analyze_exam(pdf_url: str) -> dict:
-    """
-    Analyze the content of a breast cancer exam PDF by parsing the PDF and extracting useful data.
-    """
-    try:
-        # Example API to analyze the PDF
-        response = requests.post("https://example.com/analyze_pdf", json={"pdf_url": pdf_url})
-        
-        # Parse the response
-        if response.status_code == 200:
-            exam_analysis = response.json()
-            return {"status": "success", "result": exam_analysis}
-        else:
-            return {"status": "error", "message": f"Failed to analyze PDF: {response.status_code}"}
-    
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
+# Create the index
+index_filings = VectorStoreIndex.from_vector_store(vector_store=vector_store_filings)
+index_earnings_calls = VectorStoreIndex.from_vector_store(vector_store=vector_store_earnings_calls)
+index_macro = VectorStoreIndex.from_vector_store(vector_store=vector_store_macro)
+index_crypto = VectorStoreIndex.from_vector_store(vector_store=vector_store_crypto)
 
-
-# This is the function to retrieve breast cancer research from PubMed using LangChain's PubMedRetriever
-def retrieve_pubmed_articles(query: str) -> dict:
-    """
-    Use PubMedRetriever (from LangChain) to fetch relevant breast cancer research articles.
-    Returns a list of articles in JSON format.
-    """
-    try:
-        retriever = PubMedRetriever()
-        # Fetch research articles
-        articles = retriever.get_relevant_documents(query)
-        
-        # Process the articles into a readable format
-        article_list = [{"title": article.metadata["title"], "url": article.metadata["url"]} for article in articles]
-        
-        return {"status": "success", "articles": article_list}
-    
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
-
+retriever_filings = VectorIndexRetriever(index=index_filings, similarity_top_k=15)
 
 function_map = {
     # "query_router": query_router,
-    "classify_mri": classify_mri,
-    "analyze_exam": analyze_exam,
+    # "classify_mri": classify_mri,
+    # "analyze_exam": analyze_exam,
     "retrieve_pubmed_research": retrieve_pubmed_articles,
     # "generate_follow_up_questions": generate_follow_up_questions
 }
