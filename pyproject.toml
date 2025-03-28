@@ -24,6 +24,12 @@ langchain-openai = "^0.3.0"
 langchain-experimental = "^0.3.4"
 pypdf = "^5.1.0"
 pydantic = "2.10.1"
+minio = "^7.2.15"
+boto3 = "^1.37.22"
+tensorflow = "^2.19.0"
+matplotlib = "^3.10.1"
+seaborn = "^0.13.2"
+scikit-learn = "^1.6.1"
 
 
 [tool.poetry.group.dev.dependencies]

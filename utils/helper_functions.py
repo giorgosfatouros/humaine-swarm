@@ -6,6 +6,8 @@ from chainlit import User
 from typing import List, Any
 from agents.definition import functions
 import json
+from minio import Minio
+from utils.config import MINIO_ENDPOINT, MINIO_SECURE
 # from literalai import AsyncLiteralClient
 
 # lai = AsyncLiteralClient()
@@ -147,3 +149,16 @@ def rag_extract_deliverables(retrieved_nodes):
 #     ax.xaxis.set_major_locator(plt.MaxNLocator(10))  # Limit the number of x-axis labels
 
 #     return fig
+
+
+def get_minio_client() -> Minio:
+    """Initialize and return a MinIO client."""
+    return Minio(
+        endpoint=MINIO_ENDPOINT,
+        access_key=os.getenv("MINIO_ACCESS_KEY"),
+        secret_key=os.getenv("MINIO_SECRET_KEY"),
+        session_token=os.getenv("MINIO_SESSION_TOKEN"),
+        secure=MINIO_SECURE
+    )
+
+

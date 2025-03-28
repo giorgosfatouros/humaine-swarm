@@ -30,5 +30,32 @@ functions = [
                 "additionalProperties": False,
             },
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_minio_info",
+            "description": "Retrieve information about MinIO buckets and objects",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "bucket_name": {
+                        "type": "string",
+                        "description": "Optional name of the MinIO bucket to query. If not provided, lists all buckets."
+                    },
+                    "prefix": {
+                        "type": "string",
+                        "description": "Optional prefix to filter objects (like a folder path)",
+                    },
+                    "max_items": {
+                        "type": "integer",
+                        "description": "Maximum number of items to return (default: 10)",
+                        "default": 10
+                    }
+                },
+                "required": [],
+                "additionalProperties": False,
+            },
+        }
     }
 ]

@@ -77,6 +77,11 @@ docs/_build/
 .pybuilder/
 target/
 
+.DS_Store
+downloaded_data/
+model_checkpoints
+trained_model
+
 # Jupyter Notebook
 .ipynb_checkpoints
 

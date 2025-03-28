@@ -11,14 +11,17 @@ from llama_index.llms.openai import AsyncOpenAI, OpenAI
 from llama_index.embeddings.openai import OpenAIEmbedding
 from llama_index.core.vector_stores.types import MetadataInfo, VectorStoreInfo
 from utils.helper_functions import setup_logging, rag_extract_deliverables
+from utils.config import *  # Import configuration settings
 import logging
 import requests
 import kfp
 from typing import Dict, List, Optional
+from minio import Minio
+from minio.error import S3Error
 
 # Set up the LLM
-Settings.llm  = OpenAI(model="gpt-4o-mini", max_tokens=4096, temperature=0)
-Settings.embed_model = OpenAIEmbedding(model="text-embedding-3-small")
+Settings.llm  = OpenAI(model=LLM_MODEL, max_tokens=LLM_MAX_TOKENS, temperature=LLM_TEMPERATURE)
+Settings.embed_model = OpenAIEmbedding(model=EMBEDDING_MODEL)
 logger = setup_logging('TOOLS', level=logging.INFO)
 client = AsyncOpenAI()
 # lai = AsyncLiteralClient()
@@ -26,15 +29,19 @@ client = AsyncOpenAI()
 
 
 # Set up the vector store
-pc = Pinecone(api_key=os.environ["PINECONE_API_KEY"])
-vector_store = PineconeVectorStore(pinecone_index=pc.Index("humaine"))
+pc = Pinecone(api_key=PINECONE_API_KEY)
+vector_store = PineconeVectorStore(pinecone_index=pc.Index(PINECONE_INDEX))
 index = VectorStoreIndex.from_vector_store(vector_store=vector_store)
 
-# Kubeflow connection settings
-KUBEFLOW_HOST = 'http://hua-kubeflow.ddns.net/'
-KUBEFLOW_USERNAME = "user@example.com"
-KUBEFLOW_PASSWORD = "2LZHseTdrLFFvx"
-KUBEFLOW_NAMESPACE = "kubeflow-user-example-com"
+def get_minio_client() -> Minio:
+    """Initialize and return a MinIO client."""
+    return Minio(
+        endpoint=MINIO_ENDPOINT,
+        access_key=os.getenv("MINIO_ACCESS_KEY"),
+        secret_key=os.getenv("MINIO_SECRET_KEY"),
+        session_token=os.getenv("MINIO_SESSION_TOKEN"),
+        secure=MINIO_SECURE
+    )
 
 def get_kubeflow_client() -> kfp.Client:
     """Initialize and return a Kubeflow Pipelines client."""
@@ -136,7 +143,78 @@ async def get_kubeflow_info() -> Dict:
         logger.error(f"Error retrieving Kubeflow information: {str(e)}")
         return {"error": str(e)}
 
+@cl.step(type="tool", name="MinIO Bucket Info", show_input=False)
+async def get_minio_info(bucket_name: Optional[str] = None, prefix: Optional[str] = None, max_items: int = 10) -> Dict:
+    """
+    Retrieve information about MinIO buckets and objects.
+    
+    Args:
+        bucket_name: Optional name of the MinIO bucket to query. If None, lists all buckets.
+        prefix: Optional prefix to filter objects (like a folder path)
+        max_items: Maximum number of items to return (default: 10)
+        
+    Returns:
+        Dict containing bucket information or object information from a specific bucket
+    """
+    try:
+        client = get_minio_client()
+        
+        # If no bucket specified, list all buckets
+        if bucket_name is None:
+            buckets = client.list_buckets()
+            bucket_list = [{
+                "name": bucket.name,
+                "creation_date": str(bucket.creation_date)
+            } for bucket in buckets]
+            
+            return {
+                "total_buckets": len(bucket_list),
+                "buckets": bucket_list
+            }
+        
+        # Check if specified bucket exists
+        if not client.bucket_exists(bucket_name):
+            return {"error": f"Bucket '{bucket_name}' does not exist"}
+        
+        # List all objects in the bucket with the given prefix
+        objects = client.list_objects(bucket_name, prefix=prefix, recursive=True)
+        
+        # Extract minimal info for each object
+        object_list = []
+        count = 0
+        
+        for obj in objects:
+            if count >= max_items:
+                break
+                
+            # Only include essential information
+            object_info = {
+                "name": obj.object_name,
+                "size": obj.size,
+                "last_modified": str(obj.last_modified)
+            }
+            object_list.append(object_info)
+            count += 1
+        
+        total_objects = sum(1 for _ in client.list_objects(bucket_name, prefix=prefix, recursive=True))
+        
+        return {
+            "bucket": bucket_name,
+            "prefix": prefix,
+            "total_object_count": total_objects,
+            "displayed_objects": len(object_list),
+            "objects": object_list
+        }
+            
+    except S3Error as e:
+        logger.error(f"Error retrieving MinIO information: {str(e)}")
+        return {"error": str(e)}
+    except Exception as e:
+        logger.error(f"Unexpected error retrieving MinIO information: {str(e)}")
+        return {"error": str(e)}
+
 function_map = {
     "get_humaine_info": get_humaine_info,
-    "get_kubeflow_info": get_kubeflow_info
+    "get_kubeflow_info": get_kubeflow_info,
+    "get_minio_info": get_minio_info
 }
