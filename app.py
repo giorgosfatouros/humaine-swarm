@@ -3,6 +3,7 @@ from openai import AsyncOpenAI
 import chainlit as cl
 from chainlit import User
 from classes.user_handler import UserSessionManager
+from starters import set_starters
 import json
 import logging
 from utils.starters import set_starters

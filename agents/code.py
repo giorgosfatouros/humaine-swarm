@@ -18,6 +18,7 @@ import kfp
 from typing import Dict, List, Optional
 from minio import Minio
 from minio.error import S3Error
+from utils.helper_functions import KFPClientManager
 
 # Set up the LLM
 Settings.llm  = OpenAI(model=LLM_MODEL, max_tokens=LLM_MAX_TOKENS, temperature=LLM_TEMPERATURE)
@@ -43,24 +44,39 @@ def get_minio_client() -> Minio:
         secure=MINIO_SECURE
     )
 
+# def get_kubeflow_client() -> kfp.Client:
+#     """Initialize and return a Kubeflow Pipelines client."""
+#     session = requests.Session()
+#     response = session.get(KUBEFLOW_HOST)
+    
+#     headers = {
+#         "Content-Type": "application/x-www-form-urlencoded",
+#     }
+    
+#     data = {"login": KUBEFLOW_USERNAME, "password": KUBEFLOW_PASSWORD}
+#     session.post(response.url, headers=headers, data=data)
+#     session_cookie = session.cookies.get_dict()["authservice_session"]
+    
+#     return kfp.Client(
+#         host=f"{KUBEFLOW_HOST}/pipeline",
+#         cookies=f"authservice_session={session_cookie}",
+#         namespace=KUBEFLOW_NAMESPACE,
+#     )
+
 def get_kubeflow_client() -> kfp.Client:
-    """Initialize and return a Kubeflow Pipelines client."""
-    session = requests.Session()
-    response = session.get(KUBEFLOW_HOST)
-    
-    headers = {
-        "Content-Type": "application/x-www-form-urlencoded",
-    }
-    
-    data = {"login": KUBEFLOW_USERNAME, "password": KUBEFLOW_PASSWORD}
-    session.post(response.url, headers=headers, data=data)
-    session_cookie = session.cookies.get_dict()["authservice_session"]
-    
-    return kfp.Client(
-        host=f"{KUBEFLOW_HOST}/pipeline",
-        cookies=f"authservice_session={session_cookie}",
-        namespace=KUBEFLOW_NAMESPACE,
-    )
+    kfp_client_manager = KFPClientManager(
+        api_url=os.getenv("KUBEFLOW_HOST") + "/pipeline",
+        skip_tls_verify=True,
+
+        dex_username=os.getenv("KUBEFLOW_USERNAME"),
+        dex_password=os.getenv("KUBEFLOW_PASSWORD"),
+
+        # can be 'ldap' or 'local' depending on your Dex configuration
+        dex_auth_type="local",
+        )
+
+    kfp_client = kfp_client_manager.create_kfp_client()
+    return kfp_client
 
 def read_prompt(type: str):
     current_date = datetime.now().strftime("%Y-%m-%d")
