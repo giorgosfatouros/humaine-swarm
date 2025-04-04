@@ -1,19 +1,20 @@
 import logging
-from typing import Optional, Dict
+from typing import Optional, Dict, List, Any, NamedTuple
 import os
 import re
 from urllib.parse import urlsplit, urlencode
 import kfp
+from kfp.dsl import Input, Output, Artifact, Dataset, Model, Metrics, ClassificationMetrics
 import requests
 import urllib3
 # import matplotlib.pyplot as plt
 from chainlit import User
-from typing import List, Any
 from agents.definition import functions
 import json
 from minio import Minio
 from utils.config import MINIO_ENDPOINT, MINIO_SECURE
 # from literalai import AsyncLiteralClient
+import datetime
 
 # lai = AsyncLiteralClient()
 
@@ -322,9 +323,278 @@ class KFPClientManager:
         return patched_kfp_client(
             host=self._api_url,
             cookies=session_cookies,
-        )
+            namespace=os.getenv("KUBEFLOW_NAMESPACE")
+            )
 
     def create_kfp_client(self) -> kfp.Client:
         """Get a newly authenticated Kubeflow Pipelines client."""
         return self._create_kfp_client()
             
+def get_kubeflow_client() -> kfp.Client:
+    kfp_client_manager = KFPClientManager(
+        api_url=os.getenv("KUBEFLOW_HOST") + "/pipeline",
+        skip_tls_verify=True,
+
+        dex_username=os.getenv("KUBEFLOW_USERNAME"),
+        dex_password=os.getenv("KUBEFLOW_PASSWORD"),
+
+        # can be 'ldap' or 'local' depending on your Dex configuration
+        dex_auth_type="local",
+        )
+
+    kfp_client = kfp_client_manager.create_kfp_client()
+    return kfp_client
+
+
+def get_kubeflow_old_client(host: str, username: str, password: str, namespace: str) -> kfp.Client:
+    """Initialize and return a Kubeflow Pipelines client."""
+    session = requests.Session()
+    response = session.get(host)
+    
+    headers = {
+        "Content-Type": "application/x-www-form-urlencoded",
+    }
+    
+    data = {"login": username, "password": password}
+    session.post(response.url, headers=headers, data=data)
+    session_cookie = session.cookies.get_dict()["authservice_session"]
+    
+    return kfp.Client(
+        host=f"{host}/pipeline",
+        cookies=f"authservice_session={session_cookie}",
+        namespace=namespace,
+    )
+
+# New functions for artifact metadata handling
+
+def create_dataset_artifact(uri: str, metadata: Dict[str, Any] = None) -> Dataset:
+    """
+    Create a Dataset artifact with proper metadata.
+    
+    Args:
+        uri: The URI where the dataset is stored
+        metadata: Dictionary of metadata to attach to the dataset
+        
+    Returns:
+        Dataset: A properly configured dataset artifact
+    """
+    if metadata is None:
+        metadata = {}
+        
+    dataset = Dataset(uri=uri)
+    
+    # Add standard metadata fields
+    dataset.metadata.update({
+        'creation_time': str(datetime.datetime.now()),
+        'format': metadata.get('format', 'unknown'),
+        'size': metadata.get('size', 0),
+        'sample_count': metadata.get('sample_count', 0),
+        'description': metadata.get('description', ''),
+        'source': metadata.get('source', ''),
+    })
+    
+    # Add any additional metadata
+    for key, value in metadata.items():
+        if key not in dataset.metadata:
+            dataset.metadata[key] = value
+            
+    return dataset
+
+def create_model_artifact(uri: str, metadata: Dict[str, Any] = None) -> Model:
+    """
+    Create a Model artifact with proper metadata.
+    
+    Args:
+        uri: The URI where the model is stored
+        metadata: Dictionary of metadata to attach to the model
+        
+    Returns:
+        Model: A properly configured model artifact
+    """
+    if metadata is None:
+        metadata = {}
+        
+    model = Model(uri=uri)
+    
+    # Add standard metadata fields
+    model.metadata.update({
+        'framework': metadata.get('framework', 'unknown'),
+        'creation_time': str(datetime.datetime.now()),
+        'version': metadata.get('version', '0.1'),
+        'hyperparameters': json.dumps(metadata.get('hyperparameters', {})),
+        'training_dataset': metadata.get('training_dataset', ''),
+        'description': metadata.get('description', ''),
+    })
+    
+    # Add any additional metadata
+    for key, value in metadata.items():
+        if key not in model.metadata:
+            model.metadata[key] = value
+            
+    return model
+
+def create_metrics_artifact(uri: str, metrics_data: Dict[str, Any] = None) -> Metrics:
+    """
+    Create a Metrics artifact with proper metadata.
+    
+    Args:
+        uri: The URI where the metrics are stored
+        metrics_data: Dictionary of metrics to include
+        
+    Returns:
+        Metrics: A properly configured metrics artifact
+    """
+    if metrics_data is None:
+        metrics_data = {}
+        
+    metrics = Metrics(uri=uri)
+    
+    # Add standard metadata fields
+    metrics.metadata.update({
+        'creation_time': str(datetime.datetime.now()),
+    })
+    
+    # Add metrics as metadata
+    for key, value in metrics_data.items():
+        metrics.metadata[key] = value
+            
+    return metrics
+
+def create_classification_metrics_artifact(
+    uri: str, 
+    confusion_matrix: Optional[List[List[int]]] = None,
+    roc_data: Optional[Dict[str, List[float]]] = None,
+    metadata: Optional[Dict[str, Any]] = None
+) -> ClassificationMetrics:
+    """
+    Create a ClassificationMetrics artifact with proper metadata.
+    
+    Args:
+        uri: The URI where the metrics are stored
+        confusion_matrix: Confusion matrix as a list of lists
+        roc_data: ROC curve data with 'fpr' and 'tpr' keys
+        metadata: Additional metadata
+        
+    Returns:
+        ClassificationMetrics: A properly configured classification metrics artifact
+    """
+    if metadata is None:
+        metadata = {}
+        
+    metrics = ClassificationMetrics(uri=uri)
+    
+    # Add standard metadata fields
+    metrics.metadata.update({
+        'creation_time': str(datetime.datetime.now()),
+    })
+    
+    # Add confusion matrix if provided
+    if confusion_matrix:
+        metrics.metadata['confusion_matrix'] = json.dumps(confusion_matrix)
+    
+    # Add ROC data if provided
+    if roc_data:
+        metrics.metadata['roc_data'] = json.dumps(roc_data)
+    
+    # Add any additional metadata
+    for key, value in metadata.items():
+        if key not in metrics.metadata:
+            metrics.metadata[key] = value
+            
+    return metrics
+
+def read_artifact_metadata(artifact: Artifact) -> Dict[str, Any]:
+    """
+    Read and return the metadata from an artifact.
+    
+    Args:
+        artifact: The artifact to read metadata from
+        
+    Returns:
+        Dict: The artifact's metadata
+    """
+    return artifact.metadata
+
+def log_artifact_properties(artifact: Artifact):
+    """
+    Log the properties of an artifact for debugging or monitoring.
+    
+    Args:
+        artifact: The artifact to log
+    """
+    logger.info(f"Artifact Name: {artifact.name}")
+    logger.info(f"Artifact URI: {artifact.uri}")
+    logger.info(f"Artifact Path: {artifact.path}")
+    logger.info(f"Artifact Metadata: {json.dumps(artifact.metadata, indent=2)}")
+
+# Helper function to read dataset from an artifact
+def read_dataset_from_artifact(dataset_artifact: Input[Dataset]) -> Any:
+    """
+    Read a dataset from an artifact.
+    
+    Args:
+        dataset_artifact: The dataset artifact to read
+        
+    Returns:
+        Any: The loaded dataset
+    """
+    with open(dataset_artifact.path, 'r') as f:
+        # This is a simple example; adjust based on your dataset format
+        data = f.read()
+    
+    log_artifact_properties(dataset_artifact)
+    return data
+
+# Helper function to save model to an artifact
+def save_model_to_artifact(model, model_artifact: Output[Model], metadata: Dict[str, Any] = None):
+    """
+    Save a model to an artifact.
+    
+    Args:
+        model: The model to save
+        model_artifact: The model artifact to save to
+        metadata: Dictionary of metadata to attach to the model
+    """
+    if metadata is None:
+        metadata = {}
+    
+    # Save model to the artifact path
+    model_dir = os.path.dirname(model_artifact.path)
+    os.makedirs(model_dir, exist_ok=True)
+    
+    # This is a placeholder - replace with your actual model saving code
+    # For example: model.save(model_artifact.path)
+    
+    # Update artifact metadata
+    model_artifact.metadata.update({
+        'framework': metadata.get('framework', 'unknown'),
+        'version': metadata.get('version', '0.1'),
+        'creation_time': str(datetime.datetime.now()),
+    })
+    
+    # Add any additional metadata
+    for key, value in metadata.items():
+        if key not in model_artifact.metadata:
+            model_artifact.metadata[key] = value
+    
+    log_artifact_properties(model_artifact)
+
+# Helper function to save metrics to an artifact
+def save_metrics_to_artifact(metrics_data: Dict[str, Any], metrics_artifact: Output[Metrics]):
+    """
+    Save metrics to a metrics artifact.
+    
+    Args:
+        metrics_data: Dictionary of metrics to save
+        metrics_artifact: The metrics artifact to save to
+    """
+    # Save metrics as JSON
+    with open(metrics_artifact.path, 'w') as f:
+        json.dump(metrics_data, f, indent=2)
+    
+    # Update artifact metadata with metrics
+    for key, value in metrics_data.items():
+        metrics_artifact.metadata[key] = value
+    
+    metrics_artifact.metadata['creation_time'] = str(datetime.datetime.now())
+    log_artifact_properties(metrics_artifact)
