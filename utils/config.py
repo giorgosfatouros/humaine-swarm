@@ -17,14 +17,14 @@ PINECONE_INDEX = "humaine"
 
 # LLM settings
 LLM_MODEL = "gpt-4o-mini"
-LLM_MAX_TOKENS = 4096
+LLM_MAX_TOKENS = 2000
 LLM_TEMPERATURE = 0
 EMBEDDING_MODEL = "text-embedding-3-small"
 
 settings = {
-    "model": "gpt-4o-mini",
-    "temperature": 0,
-    "max_tokens": 2000,
+    "model": LLM_MODEL,
+    "temperature": LLM_TEMPERATURE,
+    "max_tokens": LLM_MAX_TOKENS,
     "top_p": 1,
     "frequency_penalty": 0,
     "presence_penalty": 0.6,
