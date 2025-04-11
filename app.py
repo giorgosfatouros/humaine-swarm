@@ -164,7 +164,7 @@ async def process_function_call(function_call_data, message_history, msg):
 
 # Main function that handles user messages
 @cl.on_message
-@cl.step(name="HumAIne Swarm", type="run", show_input=False)
+@cl.step(name="Swarm Agent", type="run", show_input=False)
 async def main(message: cl.Message):
     # Increment the function call count for the current session
     UserSessionManager.increment_function_call_count()
