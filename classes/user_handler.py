@@ -61,7 +61,7 @@ class UserSessionManager:
 
     @staticmethod
     def set_message_history(message_history):
-        encoding = tiktoken.encoding_for_model(settings["model"])
+        encoding = tiktoken.encoding_for_model('gpt-4o-mini')
         total_tokens = 0
         truncated_messages = []
         system_message = message_history[0] if message_history and message_history[0]['role'] == 'system' else None

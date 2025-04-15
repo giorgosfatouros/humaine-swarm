@@ -16,7 +16,7 @@ PINECONE_API_KEY = os.environ["PINECONE_API_KEY"]
 PINECONE_INDEX = "humaine"
 
 # LLM settings
-LLM_MODEL = "gpt-4o-mini"
+LLM_MODEL = "gpt-4.1-mini"
 LLM_MAX_TOKENS = 2000
 LLM_TEMPERATURE = 0
 EMBEDDING_MODEL = "text-embedding-3-small"

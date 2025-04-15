@@ -1,7 +1,8 @@
-import json
 import os
 from datetime import datetime
+import json
 import chainlit as cl
+from literalai import AsyncLiteralClient
 from llama_index.vector_stores.pinecone import PineconeVectorStore
 from llama_index.core import VectorStoreIndex, StorageContext
 from llama_index.core.retrievers import VectorIndexRetriever
@@ -10,7 +11,7 @@ from llama_index.core import Settings
 from llama_index.llms.openai import AsyncOpenAI, OpenAI
 from llama_index.embeddings.openai import OpenAIEmbedding
 from llama_index.core.vector_stores.types import MetadataInfo, VectorStoreInfo
-from utils.helper_functions import setup_logging, rag_extract_deliverables
+from utils.helper_functions import setup_logging, rag_extract_deliverables, get_minio_client
 from utils.config import *  # Import configuration settings
 import logging
 import requests
@@ -25,8 +26,8 @@ Settings.llm  = OpenAI(model=LLM_MODEL, max_tokens=LLM_MAX_TOKENS, temperature=L
 Settings.embed_model = OpenAIEmbedding(model=EMBEDDING_MODEL)
 logger = setup_logging('TOOLS', level=logging.INFO)
 client = AsyncOpenAI()
-# lai = AsyncLiteralClient()
-# lai.instrument_openai()
+lai = AsyncLiteralClient()
+lai.instrument_openai()
 
 
 # Set up the vector store
@@ -34,15 +35,6 @@ pc = Pinecone(api_key=PINECONE_API_KEY)
 vector_store = PineconeVectorStore(pinecone_index=pc.Index(PINECONE_INDEX))
 index = VectorStoreIndex.from_vector_store(vector_store=vector_store)
 
-def get_minio_client() -> Minio:
-    """Initialize and return a MinIO client."""
-    return Minio(
-        endpoint=MINIO_ENDPOINT,
-        access_key=os.getenv("MINIO_ACCESS_KEY"),
-        secret_key=os.getenv("MINIO_SECRET_KEY"),
-        session_token=os.getenv("MINIO_SESSION_TOKEN"),
-        secure=MINIO_SECURE
-    )
 
 
 
@@ -532,10 +524,6 @@ async def list_runs(
                 "pipeline_id": r.pipeline_id if hasattr(r, 'pipeline_id') else None,
                 "pipeline_version_id": r.pipeline_version_id if hasattr(r, 'pipeline_version_id') else None,
                 "experiment_id": r.experiment_id if hasattr(r, 'experiment_id') else experiment_id,
-                "metrics": [
-                    {"name": m.name, "value": m.number_value}
-                    for m in r.metrics
-                ] if hasattr(r, 'metrics') and r.metrics else []
             } for r in filtered_runs]
         }
         
@@ -581,10 +569,6 @@ async def get_run_details(run_id: str) -> Dict:
             "runtime_config": {
                 "parameters": run.runtime_config.parameters if hasattr(run, 'runtime_config') and hasattr(run.runtime_config, 'parameters') else {}
             } if hasattr(run, 'runtime_config') else {},
-            "metrics": [
-                {"name": m.name, "value": m.number_value}
-                for m in run.metrics
-            ] if hasattr(run, 'metrics') and run.metrics else [],
             "error": {
                 "code": run.error.code if hasattr(run.error, 'code') else None,
                 "message": run.error.message if hasattr(run.error, 'message') else None
@@ -597,6 +581,707 @@ async def get_run_details(run_id: str) -> Dict:
         logger.error(f"Error retrieving Kubeflow run details: {str(e)}")
         return {"error": str(e)}
 
+@cl.step(type="tool", name="Pipeline Artifacts", show_input=False)
+async def get_pipeline_artifacts(
+    pipeline_name: Optional[str] = None,
+    run_id: Optional[str] = None,
+    artifact_type: Optional[str] = None,
+    bucket_name: Optional[str] = None,
+    max_items: int = 20
+) -> Dict:
+    """
+    Retrieve ML pipeline artifacts from MinIO storage.
+    
+    Args:
+        pipeline_name: Name of the pipeline to query artifacts for (e.g. 'diabetes-svm-classification')
+        run_id: Optional specific run ID to filter artifacts
+        artifact_type: Optional artifact type to filter (e.g. 'models', 'metrics', 'plots')
+        bucket_name: MinIO bucket name where artifacts are stored
+        max_items: Maximum number of items to return
+        
+    Returns:
+        Dict containing artifact information
+    """
+    try:
+        client = get_minio_client()
+        
+        # Check if bucket exists
+        if not client.bucket_exists(bucket_name):
+            return {"error": f"Bucket '{bucket_name}' does not exist"}
+        
+        # Construct prefix based on provided parameters
+        prefix = "kubeflow/"
+        if pipeline_name:
+            prefix += f"{pipeline_name}/"
+            if run_id:
+                prefix += f"{run_id}/"
+                if artifact_type:
+                    prefix += f"{artifact_type}/"
+        
+        # List objects with the constructed prefix
+        objects = client.list_objects(bucket_name, prefix=prefix, recursive=True)
+        
+        # Process and categorize the artifacts
+        artifacts = []
+        count = 0
+        
+        for obj in objects:
+            if count >= max_items:
+                break
+                
+            # Extract metadata about the artifact
+            object_name = obj.object_name
+            parts = object_name.split('/')
+            
+            # Only process if we have enough path parts
+            if len(parts) >= 4:  # kubeflow/pipeline-name/run-id/artifact-type/filename
+                try:
+                    # Get object statistics and tags if available
+                    stat = client.stat_object(bucket_name, object_name)
+                    tags = None
+                    try:
+                        tags = client.get_object_tags(bucket_name, object_name)
+                    except:
+                        # Tags might not be available for all objects
+                        pass
+                    
+                    # Determine artifact type from path
+                    obj_artifact_type = parts[3] if len(parts) > 3 else "unknown"
+                    
+                    # Extract run ID from path
+                    obj_run_id = parts[2] if len(parts) > 2 else "unknown"
+                    
+                    # Extract pipeline name from path
+                    obj_pipeline_name = parts[1] if len(parts) > 1 else "unknown"
+                    
+                    # Get the actual filename
+                    filename = parts[-1]
+                    
+                    # Create artifact info dictionary
+                    artifact_info = {
+                        "name": filename,
+                        "path": object_name,
+                        "pipeline_name": obj_pipeline_name,
+                        "run_id": obj_run_id,
+                        "type": obj_artifact_type,
+                        "size": stat.size,
+                        "last_modified": str(stat.last_modified),
+                        "etag": stat.etag,
+                    }
+                    
+                    # Add tags if available
+                    if tags:
+                        artifact_info["tags"] = dict(tags)
+                    
+                    artifacts.append(artifact_info)
+                    count += 1
+                except Exception as item_error:
+                    logger.error(f"Error processing artifact {object_name}: {str(item_error)}")
+        
+        # Count total objects for this prefix
+        total_objects = sum(1 for _ in client.list_objects(bucket_name, prefix=prefix, recursive=True))
+        
+        return {
+            "bucket": bucket_name,
+            "prefix": prefix,
+            "pipeline_name": pipeline_name,
+            "run_id": run_id,
+            "artifact_type": artifact_type,
+            "total_artifact_count": total_objects,
+            "displayed_artifacts": len(artifacts),
+            "artifacts": artifacts
+        }
+            
+    except Exception as e:
+        logger.error(f"Error retrieving pipeline artifacts: {str(e)}")
+        return {"error": str(e)}
+
+@cl.step(type="tool", name="Model Metrics", show_input=False)
+async def get_model_metrics(
+    pipeline_name: str,
+    run_id: Optional[str] = None,
+    model_name: Optional[str] = None,
+    bucket_name: Optional[str] = None,
+    max_items: int = 20
+) -> Dict:
+    """
+    Retrieve model evaluation metrics from MinIO storage.
+    
+    Args:
+        pipeline_name: Name of the pipeline (e.g. 'diabetes-svm-classification')
+        run_id: Optional specific run ID to get metrics for
+        model_name: Optional model name to filter metrics (e.g. 'Support Vector Machine')
+        bucket_name: MinIO bucket name where metrics are stored
+        max_items: Maximum number of items to return (default: 20)
+        
+    Returns:
+        Dict containing model metrics
+    """
+    try:
+        client = get_minio_client()
+        
+        # Check if bucket exists
+        if not client.bucket_exists(bucket_name):
+            return {"error": f"Bucket '{bucket_name}' does not exist"}
+        
+        # Get list of runs if run_id not specified
+        runs = []
+        if not run_id:
+            run_prefix = f"kubeflow/{pipeline_name}/"
+            objects = client.list_objects(bucket_name, prefix=run_prefix, recursive=False)
+            
+            # Extract unique run IDs
+            for obj in objects:
+                parts = obj.object_name.split('/')
+                if len(parts) > 2:
+                    runs.append(parts[2])
+            
+            # Get unique run IDs
+            runs = list(set(runs))
+        else:
+            runs = [run_id]
+        
+        # Collect metrics for each run
+        all_metrics = []
+        
+        for current_run in runs:
+            # Construct prefix to find metrics files
+            metrics_prefix = f"kubeflow/{pipeline_name}/{current_run}/metrics/"
+            
+            # List objects with metrics prefix
+            metrics_objects = client.list_objects(bucket_name, prefix=metrics_prefix, recursive=True)
+            
+            for obj in metrics_objects:
+                try:
+                    # Download and parse the metrics JSON file
+                    response = client.get_object(bucket_name, obj.object_name)
+                    metrics_data = json.load(response)
+                    
+                    # Check if we need to filter by model name
+                    if model_name and metrics_data.get("model_name") != model_name:
+                        continue
+                    
+                    # Add run ID to the metrics
+                    metrics_data["run_id"] = current_run
+                    metrics_data["artifact_path"] = obj.object_name
+                    
+                    # Extract filename
+                    filename = obj.object_name.split('/')[-1]
+                    metrics_data["filename"] = filename
+                    
+                    all_metrics.append(metrics_data)
+                    
+                    # Limit number of metrics based on max_items
+                    if len(all_metrics) >= max_items:
+                        break
+                        
+                except Exception as metrics_error:
+                    logger.error(f"Error processing metrics file {obj.object_name}: {str(metrics_error)}")
+                finally:
+                    if 'response' in locals():
+                        response.close()
+                        response.release_conn()
+                        
+            # If we've reached the max_items limit, break out of the run loop
+            if len(all_metrics) >= max_items:
+                break
+        
+        # Sort metrics by run ID and model name
+        all_metrics.sort(key=lambda x: (x.get("run_id", ""), x.get("model_name", "")))
+        
+        return {
+            "pipeline_name": pipeline_name,
+            "run_id": run_id,
+            "model_name": model_name,
+            "metrics_count": len(all_metrics),
+            "metrics": all_metrics
+        }
+            
+    except Exception as e:
+        logger.error(f"Error retrieving model metrics: {str(e)}")
+        return {"error": str(e)}
+
+@cl.step(type="tool", name="Get Pipeline Visualization", show_input=False)
+async def get_pipeline_visualization(
+    pipeline_name: str,
+    run_id: str,
+    visualization_type: str,
+    model_name: Optional[str] = None,
+    bucket_name: Optional[str] = None
+) -> Dict:
+    """
+    Retrieve and return visualization artifacts (HTML plots) from pipeline runs.
+    
+    Args:
+        pipeline_name: Name of the pipeline (e.g. 'diabetes-svm-classification')
+        run_id: Run ID to get visualizations for
+        visualization_type: Type of visualization to retrieve ('confusion_matrix', 'roc_curve', 'feature_importance')
+        model_name: Optional model name part to filter by (e.g. 'svm')
+        bucket_name: MinIO bucket name where visualizations are stored
+        
+    Returns:
+        Dict containing HTML visualization content that can be displayed in the chat
+    """
+    try:
+        client = get_minio_client()
+        
+        # Check if bucket exists
+        if not client.bucket_exists(bucket_name):
+            return {"error": f"Bucket '{bucket_name}' does not exist"}
+        
+        # Construct prefix for visualization files
+        vis_prefix = f"kubeflow/{pipeline_name}/{run_id}/plots/"
+        
+        # Map visualization_type to expected filename pattern
+        type_to_pattern = {
+            "confusion_matrix": "_confusion_matrix.html",
+            "roc_curve": "_roc_curve.html",
+            "feature_importance": "_feature_importance.html"
+        }
+        
+        if visualization_type not in type_to_pattern:
+            return {"error": f"Invalid visualization type. Choose from: {', '.join(type_to_pattern.keys())}"}
+        
+        file_pattern = type_to_pattern[visualization_type]
+        
+        # List objects with visualization prefix
+        vis_objects = client.list_objects(bucket_name, prefix=vis_prefix, recursive=True)
+        
+        # Find matching visualization files
+        matching_files = []
+        
+        for obj in vis_objects:
+            filename = obj.object_name.split('/')[-1]
+            
+            # Check if filename matches the pattern
+            if file_pattern in filename:
+                # Check model name if specified
+                if model_name is None or model_name.lower() in filename.lower():
+                    matching_files.append(obj.object_name)
+        
+        if not matching_files:
+            return {
+                "error": f"No {visualization_type} visualizations found for pipeline '{pipeline_name}' and run '{run_id}'"
+            }
+        
+        # Get the first matching file
+        vis_path = matching_files[0]
+        
+        # Download the HTML content
+        response = client.get_object(bucket_name, vis_path)
+        html_content = response.read().decode('utf-8')
+        response.close()
+        response.release_conn()
+        
+        return {
+            "pipeline_name": pipeline_name,
+            "run_id": run_id,
+            "visualization_type": visualization_type,
+            "model_name": model_name,
+            "path": vis_path,
+            "filename": vis_path.split('/')[-1],
+            "html_content": html_content,
+            "available_visualizations": [path.split('/')[-1] for path in matching_files]
+        }
+            
+    except Exception as e:
+        logger.error(f"Error retrieving pipeline visualization: {str(e)}")
+        return {"error": str(e)}
+
+@cl.step(type="tool", name="Compare Pipeline Runs", show_input=False)
+async def compare_pipeline_runs(
+    pipeline_name: str,
+    run_ids: List[str],
+    metric_names: Optional[List[str]] = None,
+    bucket_name: Optional[str] = None
+) -> Dict:
+    """
+    Compare multiple pipeline runs based on their metrics.
+    
+    Args:
+        pipeline_name: Name of the pipeline (e.g. 'diabetes-svm-classification')
+        run_ids: List of run IDs to compare
+        metric_names: Optional list of specific metrics to compare (e.g. ['accuracy', 'precision'])
+        bucket_name: MinIO bucket name where metrics are stored
+        
+    Returns:
+        Dict containing comparison results
+    """
+    try:
+        client = get_minio_client()
+        
+        # Check if bucket exists
+        if not client.bucket_exists(bucket_name):
+            return {"error": f"Bucket '{bucket_name}' does not exist"}
+        
+        if not run_ids or len(run_ids) < 1:
+            return {"error": "At least one run ID must be provided"}
+        
+        # Collect metrics for each run
+        run_metrics = []
+        
+        for run_id in run_ids:
+            # Construct prefix for metrics files
+            metrics_prefix = f"kubeflow/{pipeline_name}/{run_id}/metrics/"
+            
+            # List objects with metrics prefix
+            metrics_objects = client.list_objects(bucket_name, prefix=metrics_prefix, recursive=True)
+            
+            run_data = {
+                "run_id": run_id,
+                "models": []
+            }
+            
+            for obj in metrics_objects:
+                try:
+                    # Download and parse the metrics JSON file
+                    response = client.get_object(bucket_name, obj.object_name)
+                    metrics_data = json.load(response)
+                    
+                    model_metrics = {
+                        "model_name": metrics_data.get("model_name", "Unknown"),
+                        "metrics": {}
+                    }
+                    
+                    # Extract requested metrics or all available metrics
+                    for metric_name, metric_value in metrics_data.items():
+                        if metric_name not in ["model_name", "confusion_matrix"] and (metric_names is None or metric_name in metric_names):
+                            model_metrics["metrics"][metric_name] = metric_value
+                    
+                    # Add parameters if available in MinIO
+                    try:
+                        params_prefix = f"kubeflow/{pipeline_name}/{run_id}/metadata/run_parameters.json"
+                        params_response = client.get_object(bucket_name, params_prefix)
+                        params_data = json.load(params_response)
+                        
+                        if "parameters" in params_data:
+                            model_metrics["parameters"] = params_data["parameters"]
+                        
+                        params_response.close()
+                        params_response.release_conn()
+                    except:
+                        # Parameters might not be available
+                        pass
+                    
+                    run_data["models"].append(model_metrics)
+                    
+                except Exception as metrics_error:
+                    logger.error(f"Error processing metrics file {obj.object_name}: {str(metrics_error)}")
+                finally:
+                    if 'response' in locals():
+                        response.close()
+                        response.release_conn()
+            
+            run_metrics.append(run_data)
+        
+        # Organize comparison by model and metric
+        comparison = {}
+        all_metrics = set()
+        
+        # First pass: collect all unique model names and metrics
+        for run_data in run_metrics:
+            for model_data in run_data["models"]:
+                model_name = model_data["model_name"]
+                
+                if model_name not in comparison:
+                    comparison[model_name] = {"runs": {}}
+                
+                for metric_name in model_data["metrics"].keys():
+                    all_metrics.add(metric_name)
+        
+        # Second pass: organize by model and metric
+        for run_data in run_metrics:
+            run_id = run_data["run_id"]
+            
+            for model_data in run_data["models"]:
+                model_name = model_data["model_name"]
+                
+                # Add run data to the model
+                comparison[model_name]["runs"][run_id] = {
+                    "metrics": model_data["metrics"],
+                    "parameters": model_data.get("parameters", {})
+                }
+        
+        # Find the best run for each model and metric
+        for model_name, model_data in comparison.items():
+            model_data["best_runs"] = {}
+            
+            for metric_name in all_metrics:
+                # Determine if higher is better for this metric
+                higher_is_better = metric_name in ["accuracy", "precision", "recall", "f1_score", "auc"]
+                
+                best_value = float('-inf') if higher_is_better else float('inf')
+                best_run = None
+                
+                for run_id, run_data in model_data["runs"].items():
+                    if metric_name in run_data["metrics"]:
+                        metric_value = run_data["metrics"][metric_name]
+                        
+                        if (higher_is_better and metric_value > best_value) or \
+                           (not higher_is_better and metric_value < best_value):
+                            best_value = metric_value
+                            best_run = run_id
+                
+                if best_run:
+                    model_data["best_runs"][metric_name] = {
+                        "run_id": best_run,
+                        "value": best_value
+                    }
+        
+        return {
+            "pipeline_name": pipeline_name,
+            "run_ids": run_ids,
+            "metrics_compared": list(all_metrics),
+            "models_compared": list(comparison.keys()),
+            "comparison": comparison
+        }
+            
+    except Exception as e:
+        logger.error(f"Error comparing pipeline runs: {str(e)}")
+        return {"error": str(e)}
+
+@cl.step(type="tool", name="List User Buckets", show_input=False)
+async def list_user_buckets(max_buckets: int = 20) -> Dict:
+    """
+    List all MinIO buckets available to the user with basic statistics.
+    
+    Args:
+        max_buckets: Maximum number of buckets to return (default: 20)
+        
+    Returns:
+        Dict containing information about available buckets
+    """
+    try:
+        client = get_minio_client()
+        
+        # Get all buckets
+        buckets = client.list_buckets()
+        
+        # Limit to max_buckets
+        buckets = buckets[:max_buckets] if len(buckets) > max_buckets else buckets
+        
+        bucket_data = []
+        for bucket in buckets:
+            # Get basic stats for each bucket
+            try:
+                # Count objects and get total size
+                objects = list(client.list_objects(bucket.name, recursive=False, prefix="", include_user_meta=False, include_version=False))
+                object_count = len(objects)
+                
+                # Try to get a sample of object types to suggest bucket purpose
+                sample_objects = list(client.list_objects(bucket.name, recursive=True, prefix="", include_user_meta=False, include_version=False))
+                object_types = set()
+                ml_related = False
+                pipeline_related = False
+                
+                for obj in sample_objects:
+                    # Extract extension if any
+                    name = obj.object_name
+                    if '.' in name:
+                        ext = name.split('.')[-1].lower()
+                        object_types.add(ext)
+                    
+                    # Check for ML patterns in paths
+                    if any(term in name.lower() for term in ['model', 'metric', 'plot', 'training', 'ml', 'ai']):
+                        ml_related = True
+                    
+                    # Check for pipeline patterns
+                    if any(term in name.lower() for term in ['pipeline', 'kubeflow', 'workflow', 'run-']):
+                        pipeline_related = True
+                
+                # Get first-level "directories"
+                dirs = set()
+                for obj in objects:
+                    parts = obj.object_name.split('/')
+                    if len(parts) > 1 and parts[0]:
+                        dirs.add(parts[0])
+                
+                # Get kubeflow directories if present
+                kubeflow_dirs = []
+                if "kubeflow" in dirs:
+                    kubeflow_objects = list(client.list_objects(bucket.name, recursive=False, prefix="kubeflow/"))
+                    for obj in kubeflow_objects:
+                        parts = obj.object_name.split('/')
+                        if len(parts) > 1 and parts[1]:
+                            kubeflow_dirs.append(parts[1])
+                
+                bucket_info = {
+                    "name": bucket.name,
+                    "creation_date": str(bucket.creation_date),
+                    "object_count": object_count,
+                    "top_level_dirs": list(dirs),
+                    "file_types": list(object_types) if object_types else [],
+                    "appears_ml_related": ml_related,
+                    "appears_pipeline_related": pipeline_related,
+                }
+                
+                # Add kubeflow pipeline names if found
+                if kubeflow_dirs:
+                    bucket_info["kubeflow_pipelines"] = list(set(kubeflow_dirs))
+                
+                bucket_data.append(bucket_info)
+                
+            except Exception as bucket_error:
+                # If we can't get stats, just include basic info
+                bucket_data.append({
+                    "name": bucket.name,
+                    "creation_date": str(bucket.creation_date),
+                    "error": str(bucket_error)
+                })
+        
+        return {
+            "total_buckets": len(buckets),
+            "buckets": bucket_data
+        }
+            
+    except Exception as e:
+        logger.error(f"Error listing buckets: {str(e)}")
+        return {"error": str(e)}
+
+@cl.step(type="tool", name="List Kubeflow Experiments", show_input=False)
+async def list_experiments(
+    search_term: Optional[str] = None,
+    namespace: Optional[str] = None, 
+    page_size: int = 10, 
+    page_token: str = "",
+    sort_by: str = "created_at desc"
+) -> Dict:
+    """
+    Retrieve information about Kubeflow experiments with flexible search capabilities.
+    
+    Args:
+        search_term: Optional term to search for in experiment names (case-insensitive partial match)
+        namespace: Optional namespace to filter experiments
+        page_size: Number of results to return per page (default: 10)
+        page_token: Token for pagination (default: empty string for first page)
+        sort_by: How to sort results (default: created_at desc - newest first)
+        
+    Returns:
+        Dict containing filtered experiment information
+    """
+    try:
+        kf_client = get_kubeflow_client()
+        
+        # Create filter if search term is provided
+        filter_str = None
+        if search_term and search_term.strip():
+            filter_dict = {
+                "predicates": [{
+                    "operation": "EQUALS",
+                    "key": "display_name",
+                    "stringValue": search_term,
+                }]
+            }
+            filter_str = json.dumps(filter_dict)
+        
+        # Get experiments with the given parameters
+        response = kf_client.list_experiments(
+            page_token=page_token,
+            page_size=page_size,
+            sort_by=sort_by,
+            namespace=namespace,
+            filter=filter_str
+        )
+        
+        # Extract experiment data
+        experiments = response.experiments or []
+        
+        # If we used an exact match filter but want partial match, we need to filter client-side
+        filtered_experiments = experiments
+        if search_term and search_term.strip() and not filter_str:
+            search_term_lower = search_term.lower()
+            filtered_experiments = [
+                e for e in experiments 
+                if (e.display_name and search_term_lower in e.display_name.lower()) or
+                   (e.description and search_term_lower in e.description.lower())
+            ]
+        
+        # Build response
+        result = {
+            "total_experiments": len(filtered_experiments),
+            "total_available": len(experiments),
+            "next_page_token": response.next_page_token,
+            "namespace": namespace or "default",
+            "experiments": [{
+                "id": e.experiment_id,
+                "name": e.display_name,
+                "description": e.description,
+                "created_at": str(e.created_at)
+            } for e in filtered_experiments]
+        }
+        
+        return result
+            
+    except Exception as e:
+        logger.error(f"Error retrieving Kubeflow experiment information: {str(e)}")
+        return {"error": str(e)}
+
+@cl.step(type="tool", name="Get Experiment Details", show_input=False)
+async def get_experiment_details(
+    experiment_id: Optional[str] = None,
+    experiment_name: Optional[str] = None,
+    namespace: Optional[str] = None
+) -> Dict:
+    """
+    Retrieve detailed information about a specific Kubeflow experiment.
+    
+    Args:
+        experiment_id: Optional ID of the experiment to retrieve details for
+        experiment_name: Optional name of the experiment to retrieve details for
+        namespace: Optional namespace where the experiment is located
+        
+    Returns:
+        Dict containing detailed experiment information
+    """
+    try:
+        if not experiment_id and not experiment_name:
+            return {"error": "Either experiment_id or experiment_name must be provided"}
+            
+        kf_client = get_kubeflow_client()
+        
+        # Get experiment details
+        experiment = kf_client.get_experiment(
+            experiment_id=experiment_id,
+            experiment_name=experiment_name,
+            namespace=namespace
+        )
+        
+        # Extract the experiment details
+        experiment_details = {
+            "id": experiment.experiment_id,
+            "name": experiment.display_name,
+            "description": experiment.description,
+            "created_at": str(experiment.created_at),
+            "namespace": namespace or "default" if namespace else experiment.namespace if hasattr(experiment, 'namespace') else "default",
+            "storage_state": experiment.storage_state if hasattr(experiment, 'storage_state') else None
+        }
+        
+        # Try to get associated runs if possible
+        try:
+            runs_response = kf_client.list_runs(
+                experiment_id=experiment.experiment_id,
+                page_size=10,  # Limit to 10 most recent runs
+                sort_by="created_at desc"
+            )
+            
+            if runs_response.runs:
+                experiment_details["recent_runs"] = [{
+                    "id": r.run_id,
+                    "name": r.display_name,
+                    "state": r.state,
+                    "created_at": str(r.created_at)
+                } for r in runs_response.runs]
+                experiment_details["run_count"] = len(runs_response.runs)
+        except Exception as runs_error:
+            logger.error(f"Error retrieving runs for experiment: {str(runs_error)}")
+            # We'll continue without run information
+        
+        return experiment_details
+            
+    except Exception as e:
+        logger.error(f"Error retrieving Kubeflow experiment details: {str(e)}")
+        return {"error": str(e)}
+
 function_map = {
     "get_docs": get_docs,
     "get_minio_info": get_minio_info,
@@ -605,5 +1290,12 @@ function_map = {
     "get_pipeline_version_details": get_pipeline_version_details,
     "run_pipeline": run_pipeline,
     "list_runs": list_runs,
-    "get_run_details": get_run_details
+    "get_run_details": get_run_details,
+    "get_pipeline_artifacts": get_pipeline_artifacts,
+    "get_model_metrics": get_model_metrics,
+    "get_pipeline_visualization": get_pipeline_visualization,
+    "compare_pipeline_runs": compare_pipeline_runs,
+    "list_user_buckets": list_user_buckets,
+    "list_experiments": list_experiments,
+    "get_experiment_details": get_experiment_details
 }

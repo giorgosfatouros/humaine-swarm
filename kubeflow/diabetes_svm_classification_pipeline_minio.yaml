@@ -1,0 +1,2114 @@
+# PIPELINE DEFINITION
+# Name: diabetes-svm-classification-pipeline
+# Description: A demonstration pipeline for diabetes classification using SVM model with artifact tracking in MinIO
+# Inputs:
+#    keycloak_client_id: str [Default: 'minio']
+#    keycloak_client_secret: str [Default: 'CJHIv1jYJfokZc73lUqwtkL12YBi69IB']
+#    keycloak_password: str [Default: 'g.fatouros-huma1ne!']
+#    keycloak_url: str [Default: 'https://keycloak.humaine-horizon.eu/realms/humaine/protocol/openid-connect/token']
+#    keycloak_username: str [Default: 'g.fatouros-dev']
+#    minio_bucket: str [Default: 'innov-test-bucket']
+#    minio_endpoint: str [Default: 's3-minio.humaine-horizon.eu']
+#    pipeline_name: str [Default: 'diabetes-svm-classification']
+#    random_state: int [Default: 42.0]
+#    run_name: str [Default: '']
+#    svm_C: float [Default: 1.0]
+#    svm_kernel: str [Default: 'rbf']
+#    test_size: float [Default: 0.3]
+components:
+  comp-authenticate-minio:
+    executorLabel: exec-authenticate-minio
+    inputDefinitions:
+      parameters:
+        duration_seconds:
+          defaultValue: 43200.0
+          isOptional: true
+          parameterType: NUMBER_INTEGER
+        keycloak_client_id:
+          parameterType: STRING
+        keycloak_client_secret:
+          parameterType: STRING
+        keycloak_password:
+          parameterType: STRING
+        keycloak_url:
+          parameterType: STRING
+        keycloak_username:
+          parameterType: STRING
+        minio_endpoint:
+          parameterType: STRING
+    outputDefinitions:
+      artifacts:
+        minio_credentials:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+  comp-create-run-metadata:
+    executorLabel: exec-create-run-metadata
+    inputDefinitions:
+      parameters:
+        pipeline_name:
+          parameterType: STRING
+        random_state:
+          parameterType: NUMBER_INTEGER
+        run_id:
+          parameterType: STRING
+        svm_C:
+          parameterType: NUMBER_DOUBLE
+        svm_kernel:
+          parameterType: STRING
+        test_size:
+          parameterType: NUMBER_DOUBLE
+    outputDefinitions:
+      artifacts:
+        metadata_file:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+  comp-evaluate-model:
+    executorLabel: exec-evaluate-model
+    inputDefinitions:
+      artifacts:
+        feature_names:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+        model:
+          artifactType:
+            schemaTitle: system.Model
+            schemaVersion: 0.0.1
+        test_data:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+      parameters:
+        model_name:
+          parameterType: STRING
+    outputDefinitions:
+      artifacts:
+        confusion_matrix_plot:
+          artifactType:
+            schemaTitle: system.HTML
+            schemaVersion: 0.0.1
+        feature_importance_plot:
+          artifactType:
+            schemaTitle: system.HTML
+            schemaVersion: 0.0.1
+        metrics:
+          artifactType:
+            schemaTitle: system.Metrics
+            schemaVersion: 0.0.1
+        roc_curve_plot:
+          artifactType:
+            schemaTitle: system.HTML
+            schemaVersion: 0.0.1
+  comp-load-data:
+    executorLabel: exec-load-data
+    outputDefinitions:
+      artifacts:
+        dataset:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+        feature_names:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+        metadata:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+  comp-preprocess-data:
+    executorLabel: exec-preprocess-data
+    inputDefinitions:
+      artifacts:
+        test_data:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+        train_data:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+    outputDefinitions:
+      artifacts:
+        preprocessor:
+          artifactType:
+            schemaTitle: system.Model
+            schemaVersion: 0.0.1
+        processed_test_data:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+        processed_train_data:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+  comp-save-to-minio:
+    executorLabel: exec-save-to-minio
+    inputDefinitions:
+      artifacts:
+        artifact:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+        minio_credentials:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+      parameters:
+        artifact_name:
+          parameterType: STRING
+        artifact_type:
+          parameterType: STRING
+        bucket_name:
+          parameterType: STRING
+        fail_on_missing:
+          defaultValue: false
+          isOptional: true
+          parameterType: BOOLEAN
+        pipeline_name:
+          parameterType: STRING
+        run_id:
+          parameterType: STRING
+  comp-save-to-minio-2:
+    executorLabel: exec-save-to-minio-2
+    inputDefinitions:
+      artifacts:
+        artifact:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+        minio_credentials:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+      parameters:
+        artifact_name:
+          parameterType: STRING
+        artifact_type:
+          parameterType: STRING
+        bucket_name:
+          parameterType: STRING
+        fail_on_missing:
+          defaultValue: false
+          isOptional: true
+          parameterType: BOOLEAN
+        pipeline_name:
+          parameterType: STRING
+        run_id:
+          parameterType: STRING
+  comp-save-to-minio-3:
+    executorLabel: exec-save-to-minio-3
+    inputDefinitions:
+      artifacts:
+        artifact:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+        minio_credentials:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+      parameters:
+        artifact_name:
+          parameterType: STRING
+        artifact_type:
+          parameterType: STRING
+        bucket_name:
+          parameterType: STRING
+        fail_on_missing:
+          defaultValue: false
+          isOptional: true
+          parameterType: BOOLEAN
+        pipeline_name:
+          parameterType: STRING
+        run_id:
+          parameterType: STRING
+  comp-save-to-minio-4:
+    executorLabel: exec-save-to-minio-4
+    inputDefinitions:
+      artifacts:
+        artifact:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+        minio_credentials:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+      parameters:
+        artifact_name:
+          parameterType: STRING
+        artifact_type:
+          parameterType: STRING
+        bucket_name:
+          parameterType: STRING
+        fail_on_missing:
+          defaultValue: false
+          isOptional: true
+          parameterType: BOOLEAN
+        pipeline_name:
+          parameterType: STRING
+        run_id:
+          parameterType: STRING
+  comp-save-to-minio-5:
+    executorLabel: exec-save-to-minio-5
+    inputDefinitions:
+      artifacts:
+        artifact:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+        minio_credentials:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+      parameters:
+        artifact_name:
+          parameterType: STRING
+        artifact_type:
+          parameterType: STRING
+        bucket_name:
+          parameterType: STRING
+        fail_on_missing:
+          defaultValue: false
+          isOptional: true
+          parameterType: BOOLEAN
+        pipeline_name:
+          parameterType: STRING
+        run_id:
+          parameterType: STRING
+  comp-save-to-minio-6:
+    executorLabel: exec-save-to-minio-6
+    inputDefinitions:
+      artifacts:
+        artifact:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+        minio_credentials:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+      parameters:
+        artifact_name:
+          parameterType: STRING
+        artifact_type:
+          parameterType: STRING
+        bucket_name:
+          parameterType: STRING
+        fail_on_missing:
+          defaultValue: false
+          isOptional: true
+          parameterType: BOOLEAN
+        pipeline_name:
+          parameterType: STRING
+        run_id:
+          parameterType: STRING
+  comp-save-to-minio-7:
+    executorLabel: exec-save-to-minio-7
+    inputDefinitions:
+      artifacts:
+        artifact:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+        minio_credentials:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+      parameters:
+        artifact_name:
+          parameterType: STRING
+        artifact_type:
+          parameterType: STRING
+        bucket_name:
+          parameterType: STRING
+        fail_on_missing:
+          defaultValue: false
+          isOptional: true
+          parameterType: BOOLEAN
+        pipeline_name:
+          parameterType: STRING
+        run_id:
+          parameterType: STRING
+  comp-split-data:
+    executorLabel: exec-split-data
+    inputDefinitions:
+      artifacts:
+        dataset:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+      parameters:
+        random_state:
+          defaultValue: 42.0
+          isOptional: true
+          parameterType: NUMBER_INTEGER
+        test_size:
+          defaultValue: 0.3
+          isOptional: true
+          parameterType: NUMBER_DOUBLE
+    outputDefinitions:
+      artifacts:
+        split_info:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+        test_data:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+        train_data:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+  comp-train-svm:
+    executorLabel: exec-train-svm
+    inputDefinitions:
+      artifacts:
+        train_data:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+      parameters:
+        C:
+          defaultValue: 1.0
+          isOptional: true
+          parameterType: NUMBER_DOUBLE
+        kernel:
+          defaultValue: rbf
+          isOptional: true
+          parameterType: STRING
+        random_state:
+          defaultValue: 42.0
+          isOptional: true
+          parameterType: NUMBER_INTEGER
+    outputDefinitions:
+      artifacts:
+        model:
+          artifactType:
+            schemaTitle: system.Model
+            schemaVersion: 0.0.1
+deploymentSpec:
+  executors:
+    exec-authenticate-minio:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - authenticate_minio
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.11.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'minio==7.1.15'\
+          \ 'requests' && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef authenticate_minio(\n    keycloak_url: str,\n    keycloak_client_id:\
+          \ str, \n    keycloak_client_secret: str,\n    keycloak_username: str,\n\
+          \    keycloak_password: str,\n    minio_endpoint: str,\n    minio_credentials:\
+          \ Output[Dataset],\n    duration_seconds: int = 43200\n):\n    import json\n\
+          \    import requests\n    import datetime\n    import xml.etree.ElementTree\
+          \ as ET\n\n    # Authenticate with Keycloak to get access token\n    payload\
+          \ = {\n        'client_id': keycloak_client_id,\n        'client_secret':\
+          \ keycloak_client_secret,\n        'username': keycloak_username,\n    \
+          \    'password': keycloak_password,\n        'grant_type': 'password'\n\
+          \    }\n\n    # Clean up any whitespace in the URL\n    keycloak_url = keycloak_url.strip()\n\
+          \n    response = requests.post(keycloak_url, data=payload)\n    if response.status_code\
+          \ != 200:\n        raise Exception(f\"Failed to authenticate with Keycloak:\
+          \ {response.text}\")\n\n    access_token = response.json()['access_token']\n\
+          \n    # Use the access token to get temporary MinIO credentials\n    # Using\
+          \ Method 2 from the test script which worked\n    sts_endpoint = f\"https://{minio_endpoint}\"\
+          \n\n    sts_payload = {\n        'Action': 'AssumeRoleWithWebIdentity',\
+          \ \n        'Version': '2011-06-15',\n        'DurationSeconds': str(duration_seconds),\n\
+          \        'WebIdentityToken': access_token\n    }\n\n    headers = {\n  \
+          \      'Content-Type': 'application/x-www-form-urlencoded'\n    }\n\n  \
+          \  sts_response = requests.post(sts_endpoint, data=sts_payload, headers=headers)\n\
+          \n    if sts_response.status_code != 200:\n        raise Exception(f\"Failed\
+          \ to get MinIO credentials: {sts_response.text}\")\n\n    # Parse XML response\
+          \ to get credentials\n    try:\n        # Using Method A from the test script\
+          \ which worked\n        ET.register_namespace('', \"https://sts.amazonaws.com/doc/2011-06-15/\"\
+          )\n        root = ET.fromstring(sts_response.text)\n        ns = {'sts':\
+          \ 'https://sts.amazonaws.com/doc/2011-06-15/'}\n        credentials = root.find(\"\
+          .//sts:Credentials\", ns)\n\n        if credentials is not None:\n     \
+          \       access_key = credentials.find(\"sts:AccessKeyId\", ns).text\n  \
+          \          secret_key = credentials.find(\"sts:SecretAccessKey\", ns).text\n\
+          \            session_token = credentials.find(\"sts:SessionToken\", ns).text\n\
+          \        else:\n            # Fall back to direct string search\n      \
+          \      access_key = None\n            secret_key = None\n            session_token\
+          \ = None\n\n            # Look for AccessKeyId\n            access_key_match\
+          \ = sts_response.text.find(\"<AccessKeyId>\")\n            if access_key_match\
+          \ != -1:\n                access_key_end = sts_response.text.find(\"</AccessKeyId>\"\
+          , access_key_match)\n                if access_key_end != -1:\n        \
+          \            access_key = sts_response.text[access_key_match + len(\"<AccessKeyId>\"\
+          ):access_key_end]\n\n            # Look for SecretAccessKey\n          \
+          \  secret_key_match = sts_response.text.find(\"<SecretAccessKey>\")\n  \
+          \          if secret_key_match != -1:\n                secret_key_end =\
+          \ sts_response.text.find(\"</SecretAccessKey>\", secret_key_match)\n   \
+          \             if secret_key_end != -1:\n                    secret_key =\
+          \ sts_response.text[secret_key_match + len(\"<SecretAccessKey>\"):secret_key_end]\n\
+          \n            # Look for SessionToken\n            session_token_match =\
+          \ sts_response.text.find(\"<SessionToken>\")\n            if session_token_match\
+          \ != -1:\n                session_token_end = sts_response.text.find(\"\
+          </SessionToken>\", session_token_match)\n                if session_token_end\
+          \ != -1:\n                    session_token = sts_response.text[session_token_match\
+          \ + len(\"<SessionToken>\"):session_token_end]\n\n            if not (access_key\
+          \ and secret_key and session_token):\n                raise Exception(\"\
+          Could not extract credentials using string search\")\n\n        # Use current\
+          \ time for expiration if not found\n        expiration = datetime.datetime.now()\
+          \ + datetime.timedelta(seconds=duration_seconds)\n        expiration_str\
+          \ = expiration.isoformat()\n\n    except Exception as e:\n        raise\
+          \ Exception(f\"Failed to parse STS response: {e}\")\n\n    # Save credentials\
+          \ to output\n    minio_creds = {\n        'access_key': access_key,\n  \
+          \      'secret_key': secret_key,\n        'session_token': session_token,\n\
+          \        'expiration': expiration_str,\n        'endpoint': minio_endpoint\n\
+          \    }\n\n    with open(minio_credentials.path, 'w') as f:\n        json.dump(minio_creds,\
+          \ f)\n\n    minio_credentials.metadata.update({\n        'creation_time':\
+          \ str(datetime.datetime.now()),\n        'expiration_time': expiration_str,\n\
+          \        'endpoint': minio_endpoint\n    })\n\n    print(\"MinIO credentials\
+          \ saved successfully\")\n\n"
+        image: python:3.9
+    exec-create-run-metadata:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - create_run_metadata
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.11.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"' && \"\
+          $0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef create_run_metadata(\n    run_id: str,\n    pipeline_name: str,\n\
+          \    test_size: float,\n    random_state: int,\n    svm_C: float,\n    svm_kernel:\
+          \ str,\n    metadata_file: Output[Dataset]\n):\n    import json\n    import\
+          \ datetime\n\n    # Prepare run metadata\n    run_metadata = {\n       \
+          \ \"run_id\": run_id,\n        \"pipeline_name\": pipeline_name,\n     \
+          \   \"creation_time\": str(datetime.datetime.now()),\n        \"parameters\"\
+          : {\n            \"test_size\": test_size,\n            \"random_state\"\
+          : random_state,\n            \"svm_C\": svm_C,\n            \"svm_kernel\"\
+          : svm_kernel\n        },\n        \"environment\": {\n            \"timestamp\"\
+          : str(datetime.datetime.now()),\n            \"component\": \"create_run_metadata\"\
+          \n        }\n    }\n\n    # Write the metadata to the output file\n    with\
+          \ open(metadata_file.path, 'w') as f:\n        json.dump(run_metadata, f,\
+          \ indent=2)\n\n    # Add metadata to the artifact itself\n    metadata_file.metadata.update({\n\
+          \        \"creation_time\": str(datetime.datetime.now()),\n        \"pipeline_name\"\
+          : pipeline_name,\n        \"run_id\": run_id\n    })\n\n    print(f\"Created\
+          \ run metadata JSON: {metadata_file.path}\")\n\n"
+        image: python:3.9
+    exec-evaluate-model:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - evaluate_model
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.11.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'scikit-learn'\
+          \ 'numpy' 'pandas' 'matplotlib' 'joblib' && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef evaluate_model(\n    model: Input[Model],\n    test_data: Input[Dataset],\n\
+          \    feature_names: Input[Dataset],\n    model_name: str,\n    metrics:\
+          \ Output[Metrics],\n    confusion_matrix_plot: Output[HTML],\n    roc_curve_plot:\
+          \ Output[HTML],\n    feature_importance_plot: Output[HTML]\n):\n    import\
+          \ joblib\n    import numpy as np\n    import matplotlib.pyplot as plt\n\
+          \    import json\n    import base64\n    from io import BytesIO\n    from\
+          \ sklearn.metrics import accuracy_score, precision_score, recall_score,\
+          \ f1_score\n    from sklearn.metrics import confusion_matrix, roc_curve,\
+          \ auc, classification_report\n    import os\n\n    # Load model and test\
+          \ data\n    clf = joblib.load(model.path)\n    test_data_array = joblib.load(test_data.path)\n\
+          \    feature_names_list = joblib.load(feature_names.path)\n\n    # Split\
+          \ features and target\n    X_test = test_data_array[:, :-1]\n    y_test\
+          \ = test_data_array[:, -1]\n\n    # Make predictions\n    y_pred = clf.predict(X_test)\n\
+          \    y_pred_proba = None\n\n    # Try to get probability predictions, but\
+          \ handle models that don't support predict_proba\n    try:\n        y_pred_proba\
+          \ = clf.predict_proba(X_test)[:, 1]\n    except:\n        print(f\"Model\
+          \ {model_name} doesn't support predict_proba\")\n        # Use a simple\
+          \ placeholder probability (0.7 for positive predictions, 0.3 for negative)\n\
+          \        y_pred_proba = np.where(y_pred == 1, 0.7, 0.3)\n\n    # Calculate\
+          \ metrics\n    accuracy = accuracy_score(y_test, y_pred)\n    precision\
+          \ = precision_score(y_test, y_pred)\n    recall = recall_score(y_test, y_pred)\n\
+          \    f1 = f1_score(y_test, y_pred)\n\n    # Compute ROC curve and AUC\n\
+          \    fpr, tpr, _ = roc_curve(y_test, y_pred_proba)\n    roc_auc = auc(fpr,\
+          \ tpr)\n\n    # Create metrics dictionary\n    metrics_dict = {\n      \
+          \  \"model_name\": model_name,\n        \"accuracy\": float(accuracy),\n\
+          \        \"precision\": float(precision),\n        \"recall\": float(recall),\n\
+          \        \"f1_score\": float(f1),\n        \"auc\": float(roc_auc),\n  \
+          \      \"confusion_matrix\": confusion_matrix(y_test, y_pred).tolist()\n\
+          \    }\n\n    # Save metrics to json\n    print(f\"Writing metrics to: {metrics.path}\"\
+          )\n    os.makedirs(os.path.dirname(metrics.path), exist_ok=True)\n    with\
+          \ open(metrics.path, 'w') as f:\n        json.dump(metrics_dict, f)\n\n\
+          \    # Record metrics for Kubeflow UI\n    metrics.log_metric(\"accuracy\"\
+          , accuracy)\n    metrics.log_metric(\"precision\", precision)\n    metrics.log_metric(\"\
+          recall\", recall)\n    metrics.log_metric(\"f1\", f1)\n    metrics.log_metric(\"\
+          auc\", roc_auc)\n\n    # Helper function to convert matplotlib figure to\
+          \ HTML\n    def fig_to_html(fig, title):\n        buf = BytesIO()\n    \
+          \    fig.savefig(buf, format='png', bbox_inches='tight')\n        buf.seek(0)\n\
+          \        img_str = base64.b64encode(buf.read()).decode('utf-8')\n\n    \
+          \    # Create HTML with embedded image\n        html = f\"\"\"\n       \
+          \ <!DOCTYPE html>\n        <html>\n        <head>\n            <title>{title}</title>\n\
+          \            <style>\n                body {{\n                    font-family:\
+          \ Arial, sans-serif;\n                    margin: 20px;\n              \
+          \      text-align: center;\n                }}\n                .plot-container\
+          \ {{\n                    margin: 0 auto;\n                    max-width:\
+          \ 800px;\n                }}\n                img {{\n                 \
+          \   max-width: 100%;\n                    height: auto;\n              \
+          \  }}\n                h2 {{\n                    color: #333366;\n    \
+          \            }}\n            </style>\n        </head>\n        <body>\n\
+          \            <div class=\"plot-container\">\n                <h2>{title}</h2>\n\
+          \                <img src=\"data:image/png;base64,{img_str}\" alt=\"{title}\"\
+          >\n            </div>\n        </body>\n        </html>\n        \"\"\"\n\
+          \        return html\n\n    # Generate confusion matrix plot\n    plt.figure(figsize=(8,\
+          \ 6))\n    cm = confusion_matrix(y_test, y_pred)\n    plt.imshow(cm, interpolation='nearest',\
+          \ cmap=plt.cm.Blues)\n    plt.title(f'Confusion Matrix - {model_name}')\n\
+          \    plt.colorbar()\n    plt.xlabel('Predicted')\n    plt.ylabel('Actual')\n\
+          \    plt.xticks([0, 1], ['Negative', 'Positive'])\n    plt.yticks([0, 1],\
+          \ ['Negative', 'Positive'])\n\n    # Add text annotations\n    thresh =\
+          \ cm.max() / 2.\n    for i in range(cm.shape[0]):\n        for j in range(cm.shape[1]):\n\
+          \            plt.text(j, i, format(cm[i, j], 'd'),\n                   \
+          \ horizontalalignment=\"center\",\n                    color=\"white\" if\
+          \ cm[i, j] > thresh else \"black\")\n\n    plt.tight_layout()\n\n    # Convert\
+          \ to HTML and save\n    cm_html = fig_to_html(plt.gcf(), f\"Confusion Matrix\
+          \ - {model_name}\")\n    os.makedirs(os.path.dirname(confusion_matrix_plot.path),\
+          \ exist_ok=True)\n    with open(confusion_matrix_plot.path, 'w') as f:\n\
+          \        f.write(cm_html)\n    print(f\"Saved confusion matrix as HTML to\
+          \ {confusion_matrix_plot.path}\")\n    plt.close()\n\n    # Generate ROC\
+          \ curve plot\n    plt.figure(figsize=(8, 6))\n    plt.plot(fpr, tpr, color='darkorange',\
+          \ lw=2, label=f'ROC curve (area = {roc_auc:.2f})')\n    plt.plot([0, 1],\
+          \ [0, 1], color='navy', lw=2, linestyle='--')\n    plt.xlim([0.0, 1.0])\n\
+          \    plt.ylim([0.0, 1.05])\n    plt.xlabel('False Positive Rate')\n    plt.ylabel('True\
+          \ Positive Rate')\n    plt.title(f'ROC Curve - {model_name}')\n    plt.legend(loc=\"\
+          lower right\")\n    plt.tight_layout()\n\n    # Convert to HTML and save\n\
+          \    roc_html = fig_to_html(plt.gcf(), f\"ROC Curve - {model_name}\")\n\
+          \    os.makedirs(os.path.dirname(roc_curve_plot.path), exist_ok=True)\n\
+          \    with open(roc_curve_plot.path, 'w') as f:\n        f.write(roc_html)\n\
+          \    print(f\"Saved ROC curve as HTML to {roc_curve_plot.path}\")\n    plt.close()\n\
+          \n    # Generate feature importance plot if the model supports it\n    plt.figure(figsize=(10,\
+          \ 6))\n    title = \"\"\n    try:\n        if hasattr(clf, 'feature_importances_'):\n\
+          \            importances = clf.feature_importances_\n            indices\
+          \ = np.argsort(importances)[::-1]\n            plt.bar(range(X_test.shape[1]),\
+          \ importances[indices], align='center')\n            plt.xticks(range(X_test.shape[1]),\
+          \ [feature_names_list[i] for i in indices], rotation=90)\n            plt.title(f'Feature\
+          \ Importances - {model_name}')\n            title = f'Feature Importances\
+          \ - {model_name}'\n            plt.tight_layout()\n        elif hasattr(clf,\
+          \ 'coef_'):\n            coefs = clf.coef_[0]\n            indices = np.argsort(np.abs(coefs))[::-1]\n\
+          \            plt.bar(range(X_test.shape[1]), coefs[indices], align='center')\n\
+          \            plt.xticks(range(X_test.shape[1]), [feature_names_list[i] for\
+          \ i in indices], rotation=90)\n            plt.title(f'Feature Coefficients\
+          \ - {model_name}')\n            title = f'Feature Coefficients - {model_name}'\n\
+          \            plt.tight_layout()\n        else:\n            plt.text(0.5,\
+          \ 0.5, \"Feature importance not available for this model type\",\n     \
+          \               horizontalalignment='center', verticalalignment='center')\n\
+          \            plt.title(f'No Feature Importance Available - {model_name}')\n\
+          \            title = f'No Feature Importance Available - {model_name}'\n\
+          \    except Exception as e:\n        plt.text(0.5, 0.5, f\"Error obtaining\
+          \ feature importance: {str(e)}\",\n                horizontalalignment='center',\
+          \ verticalalignment='center')\n        plt.title(f'Error Getting Feature\
+          \ Importance - {model_name}')\n        title = f'Error Getting Feature Importance\
+          \ - {model_name}'\n\n    # Convert to HTML and save\n    importance_html\
+          \ = fig_to_html(plt.gcf(), title)\n    os.makedirs(os.path.dirname(feature_importance_plot.path),\
+          \ exist_ok=True)\n    with open(feature_importance_plot.path, 'w') as f:\n\
+          \        f.write(importance_html)\n    print(f\"Saved feature importance\
+          \ as HTML to {feature_importance_plot.path}\")\n    plt.close()\n\n    print(f\"\
+          Evaluation complete for {model_name}\")\n    print(f\"Accuracy: {accuracy:.4f},\
+          \ Precision: {precision:.4f}, Recall: {recall:.4f}, F1: {f1:.4f}, AUC: {roc_auc:.4f}\"\
+          )\n\n"
+        image: python:3.9
+    exec-load-data:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - load_data
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.11.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'numpy' 'scikit-learn'\
+          \ 'joblib' && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef load_data(dataset: Output[Dataset], \n              feature_names:\
+          \ Output[Dataset], \n              metadata: Output[Dataset]):\n    import\
+          \ numpy as np\n    from sklearn.datasets import load_diabetes\n    import\
+          \ joblib\n    import json\n    import os\n    import datetime\n\n    # Load\
+          \ diabetes dataset\n    diabetes = load_diabetes()\n    X = diabetes.data\n\
+          \n    # Convert to binary classification (above/below median)\n    y = (diabetes.target\
+          \ > np.median(diabetes.target)).astype(int)\n\n    # Create a combined dataset\
+          \ with features and target\n    combined_data = np.column_stack((X, y))\n\
+          \n    # Save data to local path - the artifact.path gives us the local path\n\
+          \    os.makedirs(os.path.dirname(dataset.path), exist_ok=True)\n    joblib.dump(combined_data,\
+          \ dataset.path)\n\n    # Save feature names for later use\n    feature_names_list\
+          \ = list(diabetes.feature_names)\n    joblib.dump(feature_names_list, feature_names.path)\n\
+          \n    # Generate dataset metadata\n    metadata_dict = {\n        \"num_samples\"\
+          : X.shape[0],\n        \"num_features\": X.shape[1],\n        \"class_distribution\"\
+          : np.bincount(y).tolist(),\n        \"feature_names\": feature_names_list\n\
+          \    }\n\n    with open(metadata.path, 'w') as f:\n        json.dump(metadata_dict,\
+          \ f)\n\n    # Add metadata to the dataset artifact\n    dataset.metadata.update({\n\
+          \        'creation_time': str(datetime.datetime.now()),\n        'format':\
+          \ 'joblib',\n        'size': X.shape[0],\n        'sample_count': X.shape[0],\n\
+          \        'description': 'Diabetes dataset converted to binary classification',\n\
+          \        'source': 'sklearn.datasets',\n        'feature_count': X.shape[1],\n\
+          \        'positive_class_samples': int(np.sum(y)),\n        'negative_class_samples':\
+          \ int(np.sum(1-y))\n    })\n\n    feature_names.metadata.update({\n    \
+          \    'creation_time': str(datetime.datetime.now()),\n        'description':\
+          \ 'Feature names for the diabetes dataset',\n    })\n\n    metadata.metadata.update({\n\
+          \        'creation_time': str(datetime.datetime.now()),\n        'description':\
+          \ 'Metadata about the diabetes dataset'\n    })\n\n"
+        image: python:3.9
+    exec-preprocess-data:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - preprocess_data
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.11.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'scikit-learn'\
+          \ 'joblib' && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef preprocess_data(train_data: Input[Dataset], \n              \
+          \     test_data: Input[Dataset],\n                   processed_train_data:\
+          \ Output[Dataset],\n                   processed_test_data: Output[Dataset],\n\
+          \                   preprocessor: Output[Model]):\n    import joblib\n \
+          \   import numpy as np\n    import datetime\n    import json\n    from sklearn.preprocessing\
+          \ import StandardScaler\n\n    # Load training and test data\n    train_data_combined\
+          \ = joblib.load(train_data.path)\n    test_data_combined = joblib.load(test_data.path)\n\
+          \n    # Extract features and targets\n    X_train = train_data_combined[:,\
+          \ :-1]\n    y_train = train_data_combined[:, -1]\n    X_test = test_data_combined[:,\
+          \ :-1]\n    y_test = test_data_combined[:, -1]\n\n    # Initialize and fit\
+          \ the scaler\n    scaler = StandardScaler()\n    X_train_scaled = scaler.fit_transform(X_train)\n\
+          \    X_test_scaled = scaler.transform(X_test)\n\n    # Recombine with targets\n\
+          \    train_data_scaled = np.column_stack((X_train_scaled, y_train))\n  \
+          \  test_data_scaled = np.column_stack((X_test_scaled, y_test))\n\n    #\
+          \ Save the preprocessed data and the scaler\n    joblib.dump(train_data_scaled,\
+          \ processed_train_data.path)\n    joblib.dump(test_data_scaled, processed_test_data.path)\n\
+          \    joblib.dump(scaler, preprocessor.path)\n\n    # Add metadata\n    preprocessor.metadata.update({\n\
+          \        'creation_time': str(datetime.datetime.now()),\n        'description':\
+          \ 'StandardScaler for feature normalization',\n        'framework': 'scikit-learn',\n\
+          \        'type': 'StandardScaler'\n    })\n\n    processed_train_data.metadata.update({\n\
+          \        'creation_time': str(datetime.datetime.now()),\n        'description':\
+          \ 'Preprocessed training data',\n        'preprocessing': 'StandardScaler',\n\
+          \        'samples': train_data_combined.shape[0]\n    })\n\n    processed_test_data.metadata.update({\n\
+          \        'creation_time': str(datetime.datetime.now()),\n        'description':\
+          \ 'Preprocessed test data',\n        'preprocessing': 'StandardScaler',\n\
+          \        'samples': test_data_combined.shape[0]\n    })\n\n"
+        image: python:3.9
+    exec-save-to-minio:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - save_to_minio
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.11.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'minio==7.1.15'\
+          \ 'requests' 'joblib' 'pillow' && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef save_to_minio(\n    minio_credentials: Input[Dataset],\n    artifact:\
+          \ Input[dsl.Artifact],\n    bucket_name: str,\n    pipeline_name: str,\n\
+          \    run_id: str,\n    artifact_type: str,\n    artifact_name: str,\n  \
+          \  fail_on_missing: bool = False\n):\n    import json\n    import os\n \
+          \   import re\n    import sys\n    from minio import Minio\n    from minio.commonconfig\
+          \ import Tags\n    import joblib\n    import time\n\n    def sanitize_s3_path(path):\n\
+          \        \"\"\"Sanitize a path for use as an S3 object key\"\"\"\n     \
+          \   # Clean up double slashes\n        while '//' in path:\n           \
+          \ path = path.replace('//', '/')\n\n        # Remove leading and trailing\
+          \ slashes\n        path = path.strip('/')\n\n        # Ensure the path doesn't\
+          \ contain invalid characters\n        path = re.sub(r'[\\x00-\\x1F\\x7F]',\
+          \ '', path)  # Remove control characters\n        path = re.sub(r'^\\s+|\\\
+          s+$', '', path)  # Remove leading/trailing whitespace\n\n        # Sanitize\
+          \ path parts (but keep slashes)\n        parts = path.split('/')\n     \
+          \   sanitized_parts = []\n        for part in parts:\n            # Keep\
+          \ only allowed characters for S3 keys\n            sanitized = re.sub(r'[^a-zA-Z0-9\\\
+          ._\\-+]', '_', part)\n            sanitized_parts.append(sanitized)\n\n\
+          \        return '/'.join(sanitized_parts)\n\n    # Build the object path\
+          \ using the provided components\n    # Sanitize each component individually\n\
+          \    safe_pipeline_name = re.sub(r'[^a-zA-Z0-9\\._\\-]', '-', pipeline_name)\n\
+          \    safe_run_id = re.sub(r'[^a-zA-Z0-9\\._\\-]', '-', run_id)\n    safe_artifact_type\
+          \ = re.sub(r'[^a-zA-Z0-9\\._\\-]', '-', artifact_type)\n    safe_artifact_name\
+          \ = re.sub(r'[^a-zA-Z0-9\\._\\-]', '-', artifact_name)\n\n    # Construct\
+          \ the path\n    object_path = f\"kubeflow/{safe_pipeline_name}/{safe_run_id}/{safe_artifact_type}/{safe_artifact_name}\"\
+          \n\n    print(f\"Saving to MinIO: {object_path}\")\n\n    # Load MinIO credentials\n\
+          \    with open(minio_credentials.path, 'r') as f:\n        creds = json.load(f)\n\
+          \n    # Check if artifact path exists\n    print(f\"Checking artifact path:\
+          \ {artifact.path}\")\n\n    if not os.path.exists(artifact.path):\n    \
+          \    error_msg = f\"Artifact path does not exist: {artifact.path}\"\n  \
+          \      print(f\"ERROR: {error_msg}\")\n\n        if fail_on_missing:\n \
+          \           # Fail the component with a clear error message\n          \
+          \  raise FileNotFoundError(f\"Required artifact missing: {artifact.path}\"\
+          )\n        else:\n            print(f\"WARNING: Creating placeholder file\
+          \ instead of failing\")\n            # Create placeholder with warning content\
+          \ that this is a placeholder\n\n            # Determine file type based\
+          \ on extension and create appropriate placeholder\n            ext = os.path.splitext(artifact.path)[1].lower()\n\
+          \            if ext in ['.json', '.yaml', '.yml', '.txt']:\n           \
+          \     with open(artifact.path, 'w') as f:\n                    f.write('{\"\
+          error\": \"Artifact file was not properly generated\"}')\n            elif\
+          \ ext in ['.png', '.jpg', '.jpeg', '.gif']:\n                # Create a\
+          \ tiny blank image\n                try:\n                    from PIL import\
+          \ Image\n                    img = Image.new('RGB', (100, 100), color =\
+          \ 'white')\n                    img.save(artifact.path)\n              \
+          \  except ImportError:\n                    with open(artifact.path, 'wb')\
+          \ as f:\n                        f.write(b'')\n            else:\n     \
+          \           # For other files (like .joblib), create an empty binary file\n\
+          \                with open(artifact.path, 'wb') as f:\n                \
+          \    f.write(b'')\n\n    # Setup MinIO client\n    client = Minio(\n   \
+          \     creds['endpoint'],\n        access_key=creds['access_key'],\n    \
+          \    secret_key=creds['secret_key'],\n        session_token=creds['session_token'],\n\
+          \        secure=True\n    )\n\n    # Create bucket if it doesn't exist\n\
+          \    if not client.bucket_exists(bucket_name):\n        client.make_bucket(bucket_name)\n\
+          \        print(f\"Created bucket: {bucket_name}\")\n\n    # Sanitize the\
+          \ path to ensure S3 compatibility\n    full_path = sanitize_s3_path(object_path)\n\
+          \    print(f\"S3 path after sanitization: {full_path}\")\n\n    # Implement\
+          \ retry logic for transient failures\n    max_retries = 3\n    retry_delay\
+          \ = 2\n\n    for attempt in range(max_retries):\n        try:\n        \
+          \    client.fput_object(bucket_name, full_path, artifact.path)\n       \
+          \     # Verify upload worked\n            stat = client.stat_object(bucket_name,\
+          \ full_path)\n            print(f\"Upload verified: size={stat.size} bytes,\
+          \ etag={stat.etag}\")\n            break\n        except Exception as e:\n\
+          \            print(f\"Attempt {attempt+1}/{max_retries} failed: {str(e)}\"\
+          )\n            if attempt < max_retries - 1:\n                print(f\"\
+          Retrying in {retry_delay} seconds...\")\n                time.sleep(retry_delay)\n\
+          \                retry_delay *= 2  # Exponential backoff\n            else:\n\
+          \                print(f\"All retry attempts failed\")\n               \
+          \ raise\n\n    # Add metadata \n    if hasattr(artifact, 'metadata') and\
+          \ artifact.metadata:\n        try:\n            tags = Tags.new_object_tags()\n\
+          \            tag_count = 0\n\n            for key, value in artifact.metadata.items():\n\
+          \                if isinstance(value, (str, int, float, bool)):\n      \
+          \              # Use less restrictive regex for keys\n                 \
+          \   valid_key = re.sub(r'[^a-zA-Z0-9\\-\\.\\_\\:\\@]', '-', str(key))[:128]\n\
+          \n                    # Use less restrictive regex for values\n        \
+          \            str_value = str(value)\n                    if len(str_value)\
+          \ > 250:\n                        str_value = str_value[:250]\n\n      \
+          \              # Allow more characters in values, just remove control chars\n\
+          \                    str_value = re.sub(r'[\\x00-\\x1F\\x7F]', '', str_value)\n\
+          \n                    # Only add if both key and value are valid\n     \
+          \               if valid_key and str_value and tag_count < 10:  # S3 has\
+          \ 10 tag limit\n                        tags[valid_key] = str_value\n  \
+          \                      tag_count += 1\n\n            if tags:\n        \
+          \        client.set_object_tags(bucket_name, full_path, tags)\n        \
+          \        print(f\"Added {tag_count} metadata tags to the object\")\n   \
+          \     except Exception as e:\n            print(f\"Warning: Could not set\
+          \ object tags: {e}\")\n\n    print(f\"Successfully uploaded {artifact.path}\
+          \ to s3://{bucket_name}/{full_path}\")\n\n"
+        image: python:3.9
+    exec-save-to-minio-2:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - save_to_minio
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.11.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'minio==7.1.15'\
+          \ 'requests' 'joblib' 'pillow' && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef save_to_minio(\n    minio_credentials: Input[Dataset],\n    artifact:\
+          \ Input[dsl.Artifact],\n    bucket_name: str,\n    pipeline_name: str,\n\
+          \    run_id: str,\n    artifact_type: str,\n    artifact_name: str,\n  \
+          \  fail_on_missing: bool = False\n):\n    import json\n    import os\n \
+          \   import re\n    import sys\n    from minio import Minio\n    from minio.commonconfig\
+          \ import Tags\n    import joblib\n    import time\n\n    def sanitize_s3_path(path):\n\
+          \        \"\"\"Sanitize a path for use as an S3 object key\"\"\"\n     \
+          \   # Clean up double slashes\n        while '//' in path:\n           \
+          \ path = path.replace('//', '/')\n\n        # Remove leading and trailing\
+          \ slashes\n        path = path.strip('/')\n\n        # Ensure the path doesn't\
+          \ contain invalid characters\n        path = re.sub(r'[\\x00-\\x1F\\x7F]',\
+          \ '', path)  # Remove control characters\n        path = re.sub(r'^\\s+|\\\
+          s+$', '', path)  # Remove leading/trailing whitespace\n\n        # Sanitize\
+          \ path parts (but keep slashes)\n        parts = path.split('/')\n     \
+          \   sanitized_parts = []\n        for part in parts:\n            # Keep\
+          \ only allowed characters for S3 keys\n            sanitized = re.sub(r'[^a-zA-Z0-9\\\
+          ._\\-+]', '_', part)\n            sanitized_parts.append(sanitized)\n\n\
+          \        return '/'.join(sanitized_parts)\n\n    # Build the object path\
+          \ using the provided components\n    # Sanitize each component individually\n\
+          \    safe_pipeline_name = re.sub(r'[^a-zA-Z0-9\\._\\-]', '-', pipeline_name)\n\
+          \    safe_run_id = re.sub(r'[^a-zA-Z0-9\\._\\-]', '-', run_id)\n    safe_artifact_type\
+          \ = re.sub(r'[^a-zA-Z0-9\\._\\-]', '-', artifact_type)\n    safe_artifact_name\
+          \ = re.sub(r'[^a-zA-Z0-9\\._\\-]', '-', artifact_name)\n\n    # Construct\
+          \ the path\n    object_path = f\"kubeflow/{safe_pipeline_name}/{safe_run_id}/{safe_artifact_type}/{safe_artifact_name}\"\
+          \n\n    print(f\"Saving to MinIO: {object_path}\")\n\n    # Load MinIO credentials\n\
+          \    with open(minio_credentials.path, 'r') as f:\n        creds = json.load(f)\n\
+          \n    # Check if artifact path exists\n    print(f\"Checking artifact path:\
+          \ {artifact.path}\")\n\n    if not os.path.exists(artifact.path):\n    \
+          \    error_msg = f\"Artifact path does not exist: {artifact.path}\"\n  \
+          \      print(f\"ERROR: {error_msg}\")\n\n        if fail_on_missing:\n \
+          \           # Fail the component with a clear error message\n          \
+          \  raise FileNotFoundError(f\"Required artifact missing: {artifact.path}\"\
+          )\n        else:\n            print(f\"WARNING: Creating placeholder file\
+          \ instead of failing\")\n            # Create placeholder with warning content\
+          \ that this is a placeholder\n\n            # Determine file type based\
+          \ on extension and create appropriate placeholder\n            ext = os.path.splitext(artifact.path)[1].lower()\n\
+          \            if ext in ['.json', '.yaml', '.yml', '.txt']:\n           \
+          \     with open(artifact.path, 'w') as f:\n                    f.write('{\"\
+          error\": \"Artifact file was not properly generated\"}')\n            elif\
+          \ ext in ['.png', '.jpg', '.jpeg', '.gif']:\n                # Create a\
+          \ tiny blank image\n                try:\n                    from PIL import\
+          \ Image\n                    img = Image.new('RGB', (100, 100), color =\
+          \ 'white')\n                    img.save(artifact.path)\n              \
+          \  except ImportError:\n                    with open(artifact.path, 'wb')\
+          \ as f:\n                        f.write(b'')\n            else:\n     \
+          \           # For other files (like .joblib), create an empty binary file\n\
+          \                with open(artifact.path, 'wb') as f:\n                \
+          \    f.write(b'')\n\n    # Setup MinIO client\n    client = Minio(\n   \
+          \     creds['endpoint'],\n        access_key=creds['access_key'],\n    \
+          \    secret_key=creds['secret_key'],\n        session_token=creds['session_token'],\n\
+          \        secure=True\n    )\n\n    # Create bucket if it doesn't exist\n\
+          \    if not client.bucket_exists(bucket_name):\n        client.make_bucket(bucket_name)\n\
+          \        print(f\"Created bucket: {bucket_name}\")\n\n    # Sanitize the\
+          \ path to ensure S3 compatibility\n    full_path = sanitize_s3_path(object_path)\n\
+          \    print(f\"S3 path after sanitization: {full_path}\")\n\n    # Implement\
+          \ retry logic for transient failures\n    max_retries = 3\n    retry_delay\
+          \ = 2\n\n    for attempt in range(max_retries):\n        try:\n        \
+          \    client.fput_object(bucket_name, full_path, artifact.path)\n       \
+          \     # Verify upload worked\n            stat = client.stat_object(bucket_name,\
+          \ full_path)\n            print(f\"Upload verified: size={stat.size} bytes,\
+          \ etag={stat.etag}\")\n            break\n        except Exception as e:\n\
+          \            print(f\"Attempt {attempt+1}/{max_retries} failed: {str(e)}\"\
+          )\n            if attempt < max_retries - 1:\n                print(f\"\
+          Retrying in {retry_delay} seconds...\")\n                time.sleep(retry_delay)\n\
+          \                retry_delay *= 2  # Exponential backoff\n            else:\n\
+          \                print(f\"All retry attempts failed\")\n               \
+          \ raise\n\n    # Add metadata \n    if hasattr(artifact, 'metadata') and\
+          \ artifact.metadata:\n        try:\n            tags = Tags.new_object_tags()\n\
+          \            tag_count = 0\n\n            for key, value in artifact.metadata.items():\n\
+          \                if isinstance(value, (str, int, float, bool)):\n      \
+          \              # Use less restrictive regex for keys\n                 \
+          \   valid_key = re.sub(r'[^a-zA-Z0-9\\-\\.\\_\\:\\@]', '-', str(key))[:128]\n\
+          \n                    # Use less restrictive regex for values\n        \
+          \            str_value = str(value)\n                    if len(str_value)\
+          \ > 250:\n                        str_value = str_value[:250]\n\n      \
+          \              # Allow more characters in values, just remove control chars\n\
+          \                    str_value = re.sub(r'[\\x00-\\x1F\\x7F]', '', str_value)\n\
+          \n                    # Only add if both key and value are valid\n     \
+          \               if valid_key and str_value and tag_count < 10:  # S3 has\
+          \ 10 tag limit\n                        tags[valid_key] = str_value\n  \
+          \                      tag_count += 1\n\n            if tags:\n        \
+          \        client.set_object_tags(bucket_name, full_path, tags)\n        \
+          \        print(f\"Added {tag_count} metadata tags to the object\")\n   \
+          \     except Exception as e:\n            print(f\"Warning: Could not set\
+          \ object tags: {e}\")\n\n    print(f\"Successfully uploaded {artifact.path}\
+          \ to s3://{bucket_name}/{full_path}\")\n\n"
+        image: python:3.9
+    exec-save-to-minio-3:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - save_to_minio
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.11.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'minio==7.1.15'\
+          \ 'requests' 'joblib' 'pillow' && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef save_to_minio(\n    minio_credentials: Input[Dataset],\n    artifact:\
+          \ Input[dsl.Artifact],\n    bucket_name: str,\n    pipeline_name: str,\n\
+          \    run_id: str,\n    artifact_type: str,\n    artifact_name: str,\n  \
+          \  fail_on_missing: bool = False\n):\n    import json\n    import os\n \
+          \   import re\n    import sys\n    from minio import Minio\n    from minio.commonconfig\
+          \ import Tags\n    import joblib\n    import time\n\n    def sanitize_s3_path(path):\n\
+          \        \"\"\"Sanitize a path for use as an S3 object key\"\"\"\n     \
+          \   # Clean up double slashes\n        while '//' in path:\n           \
+          \ path = path.replace('//', '/')\n\n        # Remove leading and trailing\
+          \ slashes\n        path = path.strip('/')\n\n        # Ensure the path doesn't\
+          \ contain invalid characters\n        path = re.sub(r'[\\x00-\\x1F\\x7F]',\
+          \ '', path)  # Remove control characters\n        path = re.sub(r'^\\s+|\\\
+          s+$', '', path)  # Remove leading/trailing whitespace\n\n        # Sanitize\
+          \ path parts (but keep slashes)\n        parts = path.split('/')\n     \
+          \   sanitized_parts = []\n        for part in parts:\n            # Keep\
+          \ only allowed characters for S3 keys\n            sanitized = re.sub(r'[^a-zA-Z0-9\\\
+          ._\\-+]', '_', part)\n            sanitized_parts.append(sanitized)\n\n\
+          \        return '/'.join(sanitized_parts)\n\n    # Build the object path\
+          \ using the provided components\n    # Sanitize each component individually\n\
+          \    safe_pipeline_name = re.sub(r'[^a-zA-Z0-9\\._\\-]', '-', pipeline_name)\n\
+          \    safe_run_id = re.sub(r'[^a-zA-Z0-9\\._\\-]', '-', run_id)\n    safe_artifact_type\
+          \ = re.sub(r'[^a-zA-Z0-9\\._\\-]', '-', artifact_type)\n    safe_artifact_name\
+          \ = re.sub(r'[^a-zA-Z0-9\\._\\-]', '-', artifact_name)\n\n    # Construct\
+          \ the path\n    object_path = f\"kubeflow/{safe_pipeline_name}/{safe_run_id}/{safe_artifact_type}/{safe_artifact_name}\"\
+          \n\n    print(f\"Saving to MinIO: {object_path}\")\n\n    # Load MinIO credentials\n\
+          \    with open(minio_credentials.path, 'r') as f:\n        creds = json.load(f)\n\
+          \n    # Check if artifact path exists\n    print(f\"Checking artifact path:\
+          \ {artifact.path}\")\n\n    if not os.path.exists(artifact.path):\n    \
+          \    error_msg = f\"Artifact path does not exist: {artifact.path}\"\n  \
+          \      print(f\"ERROR: {error_msg}\")\n\n        if fail_on_missing:\n \
+          \           # Fail the component with a clear error message\n          \
+          \  raise FileNotFoundError(f\"Required artifact missing: {artifact.path}\"\
+          )\n        else:\n            print(f\"WARNING: Creating placeholder file\
+          \ instead of failing\")\n            # Create placeholder with warning content\
+          \ that this is a placeholder\n\n            # Determine file type based\
+          \ on extension and create appropriate placeholder\n            ext = os.path.splitext(artifact.path)[1].lower()\n\
+          \            if ext in ['.json', '.yaml', '.yml', '.txt']:\n           \
+          \     with open(artifact.path, 'w') as f:\n                    f.write('{\"\
+          error\": \"Artifact file was not properly generated\"}')\n            elif\
+          \ ext in ['.png', '.jpg', '.jpeg', '.gif']:\n                # Create a\
+          \ tiny blank image\n                try:\n                    from PIL import\
+          \ Image\n                    img = Image.new('RGB', (100, 100), color =\
+          \ 'white')\n                    img.save(artifact.path)\n              \
+          \  except ImportError:\n                    with open(artifact.path, 'wb')\
+          \ as f:\n                        f.write(b'')\n            else:\n     \
+          \           # For other files (like .joblib), create an empty binary file\n\
+          \                with open(artifact.path, 'wb') as f:\n                \
+          \    f.write(b'')\n\n    # Setup MinIO client\n    client = Minio(\n   \
+          \     creds['endpoint'],\n        access_key=creds['access_key'],\n    \
+          \    secret_key=creds['secret_key'],\n        session_token=creds['session_token'],\n\
+          \        secure=True\n    )\n\n    # Create bucket if it doesn't exist\n\
+          \    if not client.bucket_exists(bucket_name):\n        client.make_bucket(bucket_name)\n\
+          \        print(f\"Created bucket: {bucket_name}\")\n\n    # Sanitize the\
+          \ path to ensure S3 compatibility\n    full_path = sanitize_s3_path(object_path)\n\
+          \    print(f\"S3 path after sanitization: {full_path}\")\n\n    # Implement\
+          \ retry logic for transient failures\n    max_retries = 3\n    retry_delay\
+          \ = 2\n\n    for attempt in range(max_retries):\n        try:\n        \
+          \    client.fput_object(bucket_name, full_path, artifact.path)\n       \
+          \     # Verify upload worked\n            stat = client.stat_object(bucket_name,\
+          \ full_path)\n            print(f\"Upload verified: size={stat.size} bytes,\
+          \ etag={stat.etag}\")\n            break\n        except Exception as e:\n\
+          \            print(f\"Attempt {attempt+1}/{max_retries} failed: {str(e)}\"\
+          )\n            if attempt < max_retries - 1:\n                print(f\"\
+          Retrying in {retry_delay} seconds...\")\n                time.sleep(retry_delay)\n\
+          \                retry_delay *= 2  # Exponential backoff\n            else:\n\
+          \                print(f\"All retry attempts failed\")\n               \
+          \ raise\n\n    # Add metadata \n    if hasattr(artifact, 'metadata') and\
+          \ artifact.metadata:\n        try:\n            tags = Tags.new_object_tags()\n\
+          \            tag_count = 0\n\n            for key, value in artifact.metadata.items():\n\
+          \                if isinstance(value, (str, int, float, bool)):\n      \
+          \              # Use less restrictive regex for keys\n                 \
+          \   valid_key = re.sub(r'[^a-zA-Z0-9\\-\\.\\_\\:\\@]', '-', str(key))[:128]\n\
+          \n                    # Use less restrictive regex for values\n        \
+          \            str_value = str(value)\n                    if len(str_value)\
+          \ > 250:\n                        str_value = str_value[:250]\n\n      \
+          \              # Allow more characters in values, just remove control chars\n\
+          \                    str_value = re.sub(r'[\\x00-\\x1F\\x7F]', '', str_value)\n\
+          \n                    # Only add if both key and value are valid\n     \
+          \               if valid_key and str_value and tag_count < 10:  # S3 has\
+          \ 10 tag limit\n                        tags[valid_key] = str_value\n  \
+          \                      tag_count += 1\n\n            if tags:\n        \
+          \        client.set_object_tags(bucket_name, full_path, tags)\n        \
+          \        print(f\"Added {tag_count} metadata tags to the object\")\n   \
+          \     except Exception as e:\n            print(f\"Warning: Could not set\
+          \ object tags: {e}\")\n\n    print(f\"Successfully uploaded {artifact.path}\
+          \ to s3://{bucket_name}/{full_path}\")\n\n"
+        image: python:3.9
+    exec-save-to-minio-4:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - save_to_minio
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.11.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'minio==7.1.15'\
+          \ 'requests' 'joblib' 'pillow' && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef save_to_minio(\n    minio_credentials: Input[Dataset],\n    artifact:\
+          \ Input[dsl.Artifact],\n    bucket_name: str,\n    pipeline_name: str,\n\
+          \    run_id: str,\n    artifact_type: str,\n    artifact_name: str,\n  \
+          \  fail_on_missing: bool = False\n):\n    import json\n    import os\n \
+          \   import re\n    import sys\n    from minio import Minio\n    from minio.commonconfig\
+          \ import Tags\n    import joblib\n    import time\n\n    def sanitize_s3_path(path):\n\
+          \        \"\"\"Sanitize a path for use as an S3 object key\"\"\"\n     \
+          \   # Clean up double slashes\n        while '//' in path:\n           \
+          \ path = path.replace('//', '/')\n\n        # Remove leading and trailing\
+          \ slashes\n        path = path.strip('/')\n\n        # Ensure the path doesn't\
+          \ contain invalid characters\n        path = re.sub(r'[\\x00-\\x1F\\x7F]',\
+          \ '', path)  # Remove control characters\n        path = re.sub(r'^\\s+|\\\
+          s+$', '', path)  # Remove leading/trailing whitespace\n\n        # Sanitize\
+          \ path parts (but keep slashes)\n        parts = path.split('/')\n     \
+          \   sanitized_parts = []\n        for part in parts:\n            # Keep\
+          \ only allowed characters for S3 keys\n            sanitized = re.sub(r'[^a-zA-Z0-9\\\
+          ._\\-+]', '_', part)\n            sanitized_parts.append(sanitized)\n\n\
+          \        return '/'.join(sanitized_parts)\n\n    # Build the object path\
+          \ using the provided components\n    # Sanitize each component individually\n\
+          \    safe_pipeline_name = re.sub(r'[^a-zA-Z0-9\\._\\-]', '-', pipeline_name)\n\
+          \    safe_run_id = re.sub(r'[^a-zA-Z0-9\\._\\-]', '-', run_id)\n    safe_artifact_type\
+          \ = re.sub(r'[^a-zA-Z0-9\\._\\-]', '-', artifact_type)\n    safe_artifact_name\
+          \ = re.sub(r'[^a-zA-Z0-9\\._\\-]', '-', artifact_name)\n\n    # Construct\
+          \ the path\n    object_path = f\"kubeflow/{safe_pipeline_name}/{safe_run_id}/{safe_artifact_type}/{safe_artifact_name}\"\
+          \n\n    print(f\"Saving to MinIO: {object_path}\")\n\n    # Load MinIO credentials\n\
+          \    with open(minio_credentials.path, 'r') as f:\n        creds = json.load(f)\n\
+          \n    # Check if artifact path exists\n    print(f\"Checking artifact path:\
+          \ {artifact.path}\")\n\n    if not os.path.exists(artifact.path):\n    \
+          \    error_msg = f\"Artifact path does not exist: {artifact.path}\"\n  \
+          \      print(f\"ERROR: {error_msg}\")\n\n        if fail_on_missing:\n \
+          \           # Fail the component with a clear error message\n          \
+          \  raise FileNotFoundError(f\"Required artifact missing: {artifact.path}\"\
+          )\n        else:\n            print(f\"WARNING: Creating placeholder file\
+          \ instead of failing\")\n            # Create placeholder with warning content\
+          \ that this is a placeholder\n\n            # Determine file type based\
+          \ on extension and create appropriate placeholder\n            ext = os.path.splitext(artifact.path)[1].lower()\n\
+          \            if ext in ['.json', '.yaml', '.yml', '.txt']:\n           \
+          \     with open(artifact.path, 'w') as f:\n                    f.write('{\"\
+          error\": \"Artifact file was not properly generated\"}')\n            elif\
+          \ ext in ['.png', '.jpg', '.jpeg', '.gif']:\n                # Create a\
+          \ tiny blank image\n                try:\n                    from PIL import\
+          \ Image\n                    img = Image.new('RGB', (100, 100), color =\
+          \ 'white')\n                    img.save(artifact.path)\n              \
+          \  except ImportError:\n                    with open(artifact.path, 'wb')\
+          \ as f:\n                        f.write(b'')\n            else:\n     \
+          \           # For other files (like .joblib), create an empty binary file\n\
+          \                with open(artifact.path, 'wb') as f:\n                \
+          \    f.write(b'')\n\n    # Setup MinIO client\n    client = Minio(\n   \
+          \     creds['endpoint'],\n        access_key=creds['access_key'],\n    \
+          \    secret_key=creds['secret_key'],\n        session_token=creds['session_token'],\n\
+          \        secure=True\n    )\n\n    # Create bucket if it doesn't exist\n\
+          \    if not client.bucket_exists(bucket_name):\n        client.make_bucket(bucket_name)\n\
+          \        print(f\"Created bucket: {bucket_name}\")\n\n    # Sanitize the\
+          \ path to ensure S3 compatibility\n    full_path = sanitize_s3_path(object_path)\n\
+          \    print(f\"S3 path after sanitization: {full_path}\")\n\n    # Implement\
+          \ retry logic for transient failures\n    max_retries = 3\n    retry_delay\
+          \ = 2\n\n    for attempt in range(max_retries):\n        try:\n        \
+          \    client.fput_object(bucket_name, full_path, artifact.path)\n       \
+          \     # Verify upload worked\n            stat = client.stat_object(bucket_name,\
+          \ full_path)\n            print(f\"Upload verified: size={stat.size} bytes,\
+          \ etag={stat.etag}\")\n            break\n        except Exception as e:\n\
+          \            print(f\"Attempt {attempt+1}/{max_retries} failed: {str(e)}\"\
+          )\n            if attempt < max_retries - 1:\n                print(f\"\
+          Retrying in {retry_delay} seconds...\")\n                time.sleep(retry_delay)\n\
+          \                retry_delay *= 2  # Exponential backoff\n            else:\n\
+          \                print(f\"All retry attempts failed\")\n               \
+          \ raise\n\n    # Add metadata \n    if hasattr(artifact, 'metadata') and\
+          \ artifact.metadata:\n        try:\n            tags = Tags.new_object_tags()\n\
+          \            tag_count = 0\n\n            for key, value in artifact.metadata.items():\n\
+          \                if isinstance(value, (str, int, float, bool)):\n      \
+          \              # Use less restrictive regex for keys\n                 \
+          \   valid_key = re.sub(r'[^a-zA-Z0-9\\-\\.\\_\\:\\@]', '-', str(key))[:128]\n\
+          \n                    # Use less restrictive regex for values\n        \
+          \            str_value = str(value)\n                    if len(str_value)\
+          \ > 250:\n                        str_value = str_value[:250]\n\n      \
+          \              # Allow more characters in values, just remove control chars\n\
+          \                    str_value = re.sub(r'[\\x00-\\x1F\\x7F]', '', str_value)\n\
+          \n                    # Only add if both key and value are valid\n     \
+          \               if valid_key and str_value and tag_count < 10:  # S3 has\
+          \ 10 tag limit\n                        tags[valid_key] = str_value\n  \
+          \                      tag_count += 1\n\n            if tags:\n        \
+          \        client.set_object_tags(bucket_name, full_path, tags)\n        \
+          \        print(f\"Added {tag_count} metadata tags to the object\")\n   \
+          \     except Exception as e:\n            print(f\"Warning: Could not set\
+          \ object tags: {e}\")\n\n    print(f\"Successfully uploaded {artifact.path}\
+          \ to s3://{bucket_name}/{full_path}\")\n\n"
+        image: python:3.9
+    exec-save-to-minio-5:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - save_to_minio
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.11.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'minio==7.1.15'\
+          \ 'requests' 'joblib' 'pillow' && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef save_to_minio(\n    minio_credentials: Input[Dataset],\n    artifact:\
+          \ Input[dsl.Artifact],\n    bucket_name: str,\n    pipeline_name: str,\n\
+          \    run_id: str,\n    artifact_type: str,\n    artifact_name: str,\n  \
+          \  fail_on_missing: bool = False\n):\n    import json\n    import os\n \
+          \   import re\n    import sys\n    from minio import Minio\n    from minio.commonconfig\
+          \ import Tags\n    import joblib\n    import time\n\n    def sanitize_s3_path(path):\n\
+          \        \"\"\"Sanitize a path for use as an S3 object key\"\"\"\n     \
+          \   # Clean up double slashes\n        while '//' in path:\n           \
+          \ path = path.replace('//', '/')\n\n        # Remove leading and trailing\
+          \ slashes\n        path = path.strip('/')\n\n        # Ensure the path doesn't\
+          \ contain invalid characters\n        path = re.sub(r'[\\x00-\\x1F\\x7F]',\
+          \ '', path)  # Remove control characters\n        path = re.sub(r'^\\s+|\\\
+          s+$', '', path)  # Remove leading/trailing whitespace\n\n        # Sanitize\
+          \ path parts (but keep slashes)\n        parts = path.split('/')\n     \
+          \   sanitized_parts = []\n        for part in parts:\n            # Keep\
+          \ only allowed characters for S3 keys\n            sanitized = re.sub(r'[^a-zA-Z0-9\\\
+          ._\\-+]', '_', part)\n            sanitized_parts.append(sanitized)\n\n\
+          \        return '/'.join(sanitized_parts)\n\n    # Build the object path\
+          \ using the provided components\n    # Sanitize each component individually\n\
+          \    safe_pipeline_name = re.sub(r'[^a-zA-Z0-9\\._\\-]', '-', pipeline_name)\n\
+          \    safe_run_id = re.sub(r'[^a-zA-Z0-9\\._\\-]', '-', run_id)\n    safe_artifact_type\
+          \ = re.sub(r'[^a-zA-Z0-9\\._\\-]', '-', artifact_type)\n    safe_artifact_name\
+          \ = re.sub(r'[^a-zA-Z0-9\\._\\-]', '-', artifact_name)\n\n    # Construct\
+          \ the path\n    object_path = f\"kubeflow/{safe_pipeline_name}/{safe_run_id}/{safe_artifact_type}/{safe_artifact_name}\"\
+          \n\n    print(f\"Saving to MinIO: {object_path}\")\n\n    # Load MinIO credentials\n\
+          \    with open(minio_credentials.path, 'r') as f:\n        creds = json.load(f)\n\
+          \n    # Check if artifact path exists\n    print(f\"Checking artifact path:\
+          \ {artifact.path}\")\n\n    if not os.path.exists(artifact.path):\n    \
+          \    error_msg = f\"Artifact path does not exist: {artifact.path}\"\n  \
+          \      print(f\"ERROR: {error_msg}\")\n\n        if fail_on_missing:\n \
+          \           # Fail the component with a clear error message\n          \
+          \  raise FileNotFoundError(f\"Required artifact missing: {artifact.path}\"\
+          )\n        else:\n            print(f\"WARNING: Creating placeholder file\
+          \ instead of failing\")\n            # Create placeholder with warning content\
+          \ that this is a placeholder\n\n            # Determine file type based\
+          \ on extension and create appropriate placeholder\n            ext = os.path.splitext(artifact.path)[1].lower()\n\
+          \            if ext in ['.json', '.yaml', '.yml', '.txt']:\n           \
+          \     with open(artifact.path, 'w') as f:\n                    f.write('{\"\
+          error\": \"Artifact file was not properly generated\"}')\n            elif\
+          \ ext in ['.png', '.jpg', '.jpeg', '.gif']:\n                # Create a\
+          \ tiny blank image\n                try:\n                    from PIL import\
+          \ Image\n                    img = Image.new('RGB', (100, 100), color =\
+          \ 'white')\n                    img.save(artifact.path)\n              \
+          \  except ImportError:\n                    with open(artifact.path, 'wb')\
+          \ as f:\n                        f.write(b'')\n            else:\n     \
+          \           # For other files (like .joblib), create an empty binary file\n\
+          \                with open(artifact.path, 'wb') as f:\n                \
+          \    f.write(b'')\n\n    # Setup MinIO client\n    client = Minio(\n   \
+          \     creds['endpoint'],\n        access_key=creds['access_key'],\n    \
+          \    secret_key=creds['secret_key'],\n        session_token=creds['session_token'],\n\
+          \        secure=True\n    )\n\n    # Create bucket if it doesn't exist\n\
+          \    if not client.bucket_exists(bucket_name):\n        client.make_bucket(bucket_name)\n\
+          \        print(f\"Created bucket: {bucket_name}\")\n\n    # Sanitize the\
+          \ path to ensure S3 compatibility\n    full_path = sanitize_s3_path(object_path)\n\
+          \    print(f\"S3 path after sanitization: {full_path}\")\n\n    # Implement\
+          \ retry logic for transient failures\n    max_retries = 3\n    retry_delay\
+          \ = 2\n\n    for attempt in range(max_retries):\n        try:\n        \
+          \    client.fput_object(bucket_name, full_path, artifact.path)\n       \
+          \     # Verify upload worked\n            stat = client.stat_object(bucket_name,\
+          \ full_path)\n            print(f\"Upload verified: size={stat.size} bytes,\
+          \ etag={stat.etag}\")\n            break\n        except Exception as e:\n\
+          \            print(f\"Attempt {attempt+1}/{max_retries} failed: {str(e)}\"\
+          )\n            if attempt < max_retries - 1:\n                print(f\"\
+          Retrying in {retry_delay} seconds...\")\n                time.sleep(retry_delay)\n\
+          \                retry_delay *= 2  # Exponential backoff\n            else:\n\
+          \                print(f\"All retry attempts failed\")\n               \
+          \ raise\n\n    # Add metadata \n    if hasattr(artifact, 'metadata') and\
+          \ artifact.metadata:\n        try:\n            tags = Tags.new_object_tags()\n\
+          \            tag_count = 0\n\n            for key, value in artifact.metadata.items():\n\
+          \                if isinstance(value, (str, int, float, bool)):\n      \
+          \              # Use less restrictive regex for keys\n                 \
+          \   valid_key = re.sub(r'[^a-zA-Z0-9\\-\\.\\_\\:\\@]', '-', str(key))[:128]\n\
+          \n                    # Use less restrictive regex for values\n        \
+          \            str_value = str(value)\n                    if len(str_value)\
+          \ > 250:\n                        str_value = str_value[:250]\n\n      \
+          \              # Allow more characters in values, just remove control chars\n\
+          \                    str_value = re.sub(r'[\\x00-\\x1F\\x7F]', '', str_value)\n\
+          \n                    # Only add if both key and value are valid\n     \
+          \               if valid_key and str_value and tag_count < 10:  # S3 has\
+          \ 10 tag limit\n                        tags[valid_key] = str_value\n  \
+          \                      tag_count += 1\n\n            if tags:\n        \
+          \        client.set_object_tags(bucket_name, full_path, tags)\n        \
+          \        print(f\"Added {tag_count} metadata tags to the object\")\n   \
+          \     except Exception as e:\n            print(f\"Warning: Could not set\
+          \ object tags: {e}\")\n\n    print(f\"Successfully uploaded {artifact.path}\
+          \ to s3://{bucket_name}/{full_path}\")\n\n"
+        image: python:3.9
+    exec-save-to-minio-6:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - save_to_minio
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.11.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'minio==7.1.15'\
+          \ 'requests' 'joblib' 'pillow' && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef save_to_minio(\n    minio_credentials: Input[Dataset],\n    artifact:\
+          \ Input[dsl.Artifact],\n    bucket_name: str,\n    pipeline_name: str,\n\
+          \    run_id: str,\n    artifact_type: str,\n    artifact_name: str,\n  \
+          \  fail_on_missing: bool = False\n):\n    import json\n    import os\n \
+          \   import re\n    import sys\n    from minio import Minio\n    from minio.commonconfig\
+          \ import Tags\n    import joblib\n    import time\n\n    def sanitize_s3_path(path):\n\
+          \        \"\"\"Sanitize a path for use as an S3 object key\"\"\"\n     \
+          \   # Clean up double slashes\n        while '//' in path:\n           \
+          \ path = path.replace('//', '/')\n\n        # Remove leading and trailing\
+          \ slashes\n        path = path.strip('/')\n\n        # Ensure the path doesn't\
+          \ contain invalid characters\n        path = re.sub(r'[\\x00-\\x1F\\x7F]',\
+          \ '', path)  # Remove control characters\n        path = re.sub(r'^\\s+|\\\
+          s+$', '', path)  # Remove leading/trailing whitespace\n\n        # Sanitize\
+          \ path parts (but keep slashes)\n        parts = path.split('/')\n     \
+          \   sanitized_parts = []\n        for part in parts:\n            # Keep\
+          \ only allowed characters for S3 keys\n            sanitized = re.sub(r'[^a-zA-Z0-9\\\
+          ._\\-+]', '_', part)\n            sanitized_parts.append(sanitized)\n\n\
+          \        return '/'.join(sanitized_parts)\n\n    # Build the object path\
+          \ using the provided components\n    # Sanitize each component individually\n\
+          \    safe_pipeline_name = re.sub(r'[^a-zA-Z0-9\\._\\-]', '-', pipeline_name)\n\
+          \    safe_run_id = re.sub(r'[^a-zA-Z0-9\\._\\-]', '-', run_id)\n    safe_artifact_type\
+          \ = re.sub(r'[^a-zA-Z0-9\\._\\-]', '-', artifact_type)\n    safe_artifact_name\
+          \ = re.sub(r'[^a-zA-Z0-9\\._\\-]', '-', artifact_name)\n\n    # Construct\
+          \ the path\n    object_path = f\"kubeflow/{safe_pipeline_name}/{safe_run_id}/{safe_artifact_type}/{safe_artifact_name}\"\
+          \n\n    print(f\"Saving to MinIO: {object_path}\")\n\n    # Load MinIO credentials\n\
+          \    with open(minio_credentials.path, 'r') as f:\n        creds = json.load(f)\n\
+          \n    # Check if artifact path exists\n    print(f\"Checking artifact path:\
+          \ {artifact.path}\")\n\n    if not os.path.exists(artifact.path):\n    \
+          \    error_msg = f\"Artifact path does not exist: {artifact.path}\"\n  \
+          \      print(f\"ERROR: {error_msg}\")\n\n        if fail_on_missing:\n \
+          \           # Fail the component with a clear error message\n          \
+          \  raise FileNotFoundError(f\"Required artifact missing: {artifact.path}\"\
+          )\n        else:\n            print(f\"WARNING: Creating placeholder file\
+          \ instead of failing\")\n            # Create placeholder with warning content\
+          \ that this is a placeholder\n\n            # Determine file type based\
+          \ on extension and create appropriate placeholder\n            ext = os.path.splitext(artifact.path)[1].lower()\n\
+          \            if ext in ['.json', '.yaml', '.yml', '.txt']:\n           \
+          \     with open(artifact.path, 'w') as f:\n                    f.write('{\"\
+          error\": \"Artifact file was not properly generated\"}')\n            elif\
+          \ ext in ['.png', '.jpg', '.jpeg', '.gif']:\n                # Create a\
+          \ tiny blank image\n                try:\n                    from PIL import\
+          \ Image\n                    img = Image.new('RGB', (100, 100), color =\
+          \ 'white')\n                    img.save(artifact.path)\n              \
+          \  except ImportError:\n                    with open(artifact.path, 'wb')\
+          \ as f:\n                        f.write(b'')\n            else:\n     \
+          \           # For other files (like .joblib), create an empty binary file\n\
+          \                with open(artifact.path, 'wb') as f:\n                \
+          \    f.write(b'')\n\n    # Setup MinIO client\n    client = Minio(\n   \
+          \     creds['endpoint'],\n        access_key=creds['access_key'],\n    \
+          \    secret_key=creds['secret_key'],\n        session_token=creds['session_token'],\n\
+          \        secure=True\n    )\n\n    # Create bucket if it doesn't exist\n\
+          \    if not client.bucket_exists(bucket_name):\n        client.make_bucket(bucket_name)\n\
+          \        print(f\"Created bucket: {bucket_name}\")\n\n    # Sanitize the\
+          \ path to ensure S3 compatibility\n    full_path = sanitize_s3_path(object_path)\n\
+          \    print(f\"S3 path after sanitization: {full_path}\")\n\n    # Implement\
+          \ retry logic for transient failures\n    max_retries = 3\n    retry_delay\
+          \ = 2\n\n    for attempt in range(max_retries):\n        try:\n        \
+          \    client.fput_object(bucket_name, full_path, artifact.path)\n       \
+          \     # Verify upload worked\n            stat = client.stat_object(bucket_name,\
+          \ full_path)\n            print(f\"Upload verified: size={stat.size} bytes,\
+          \ etag={stat.etag}\")\n            break\n        except Exception as e:\n\
+          \            print(f\"Attempt {attempt+1}/{max_retries} failed: {str(e)}\"\
+          )\n            if attempt < max_retries - 1:\n                print(f\"\
+          Retrying in {retry_delay} seconds...\")\n                time.sleep(retry_delay)\n\
+          \                retry_delay *= 2  # Exponential backoff\n            else:\n\
+          \                print(f\"All retry attempts failed\")\n               \
+          \ raise\n\n    # Add metadata \n    if hasattr(artifact, 'metadata') and\
+          \ artifact.metadata:\n        try:\n            tags = Tags.new_object_tags()\n\
+          \            tag_count = 0\n\n            for key, value in artifact.metadata.items():\n\
+          \                if isinstance(value, (str, int, float, bool)):\n      \
+          \              # Use less restrictive regex for keys\n                 \
+          \   valid_key = re.sub(r'[^a-zA-Z0-9\\-\\.\\_\\:\\@]', '-', str(key))[:128]\n\
+          \n                    # Use less restrictive regex for values\n        \
+          \            str_value = str(value)\n                    if len(str_value)\
+          \ > 250:\n                        str_value = str_value[:250]\n\n      \
+          \              # Allow more characters in values, just remove control chars\n\
+          \                    str_value = re.sub(r'[\\x00-\\x1F\\x7F]', '', str_value)\n\
+          \n                    # Only add if both key and value are valid\n     \
+          \               if valid_key and str_value and tag_count < 10:  # S3 has\
+          \ 10 tag limit\n                        tags[valid_key] = str_value\n  \
+          \                      tag_count += 1\n\n            if tags:\n        \
+          \        client.set_object_tags(bucket_name, full_path, tags)\n        \
+          \        print(f\"Added {tag_count} metadata tags to the object\")\n   \
+          \     except Exception as e:\n            print(f\"Warning: Could not set\
+          \ object tags: {e}\")\n\n    print(f\"Successfully uploaded {artifact.path}\
+          \ to s3://{bucket_name}/{full_path}\")\n\n"
+        image: python:3.9
+    exec-save-to-minio-7:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - save_to_minio
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.11.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'minio==7.1.15'\
+          \ 'requests' 'joblib' 'pillow' && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef save_to_minio(\n    minio_credentials: Input[Dataset],\n    artifact:\
+          \ Input[dsl.Artifact],\n    bucket_name: str,\n    pipeline_name: str,\n\
+          \    run_id: str,\n    artifact_type: str,\n    artifact_name: str,\n  \
+          \  fail_on_missing: bool = False\n):\n    import json\n    import os\n \
+          \   import re\n    import sys\n    from minio import Minio\n    from minio.commonconfig\
+          \ import Tags\n    import joblib\n    import time\n\n    def sanitize_s3_path(path):\n\
+          \        \"\"\"Sanitize a path for use as an S3 object key\"\"\"\n     \
+          \   # Clean up double slashes\n        while '//' in path:\n           \
+          \ path = path.replace('//', '/')\n\n        # Remove leading and trailing\
+          \ slashes\n        path = path.strip('/')\n\n        # Ensure the path doesn't\
+          \ contain invalid characters\n        path = re.sub(r'[\\x00-\\x1F\\x7F]',\
+          \ '', path)  # Remove control characters\n        path = re.sub(r'^\\s+|\\\
+          s+$', '', path)  # Remove leading/trailing whitespace\n\n        # Sanitize\
+          \ path parts (but keep slashes)\n        parts = path.split('/')\n     \
+          \   sanitized_parts = []\n        for part in parts:\n            # Keep\
+          \ only allowed characters for S3 keys\n            sanitized = re.sub(r'[^a-zA-Z0-9\\\
+          ._\\-+]', '_', part)\n            sanitized_parts.append(sanitized)\n\n\
+          \        return '/'.join(sanitized_parts)\n\n    # Build the object path\
+          \ using the provided components\n    # Sanitize each component individually\n\
+          \    safe_pipeline_name = re.sub(r'[^a-zA-Z0-9\\._\\-]', '-', pipeline_name)\n\
+          \    safe_run_id = re.sub(r'[^a-zA-Z0-9\\._\\-]', '-', run_id)\n    safe_artifact_type\
+          \ = re.sub(r'[^a-zA-Z0-9\\._\\-]', '-', artifact_type)\n    safe_artifact_name\
+          \ = re.sub(r'[^a-zA-Z0-9\\._\\-]', '-', artifact_name)\n\n    # Construct\
+          \ the path\n    object_path = f\"kubeflow/{safe_pipeline_name}/{safe_run_id}/{safe_artifact_type}/{safe_artifact_name}\"\
+          \n\n    print(f\"Saving to MinIO: {object_path}\")\n\n    # Load MinIO credentials\n\
+          \    with open(minio_credentials.path, 'r') as f:\n        creds = json.load(f)\n\
+          \n    # Check if artifact path exists\n    print(f\"Checking artifact path:\
+          \ {artifact.path}\")\n\n    if not os.path.exists(artifact.path):\n    \
+          \    error_msg = f\"Artifact path does not exist: {artifact.path}\"\n  \
+          \      print(f\"ERROR: {error_msg}\")\n\n        if fail_on_missing:\n \
+          \           # Fail the component with a clear error message\n          \
+          \  raise FileNotFoundError(f\"Required artifact missing: {artifact.path}\"\
+          )\n        else:\n            print(f\"WARNING: Creating placeholder file\
+          \ instead of failing\")\n            # Create placeholder with warning content\
+          \ that this is a placeholder\n\n            # Determine file type based\
+          \ on extension and create appropriate placeholder\n            ext = os.path.splitext(artifact.path)[1].lower()\n\
+          \            if ext in ['.json', '.yaml', '.yml', '.txt']:\n           \
+          \     with open(artifact.path, 'w') as f:\n                    f.write('{\"\
+          error\": \"Artifact file was not properly generated\"}')\n            elif\
+          \ ext in ['.png', '.jpg', '.jpeg', '.gif']:\n                # Create a\
+          \ tiny blank image\n                try:\n                    from PIL import\
+          \ Image\n                    img = Image.new('RGB', (100, 100), color =\
+          \ 'white')\n                    img.save(artifact.path)\n              \
+          \  except ImportError:\n                    with open(artifact.path, 'wb')\
+          \ as f:\n                        f.write(b'')\n            else:\n     \
+          \           # For other files (like .joblib), create an empty binary file\n\
+          \                with open(artifact.path, 'wb') as f:\n                \
+          \    f.write(b'')\n\n    # Setup MinIO client\n    client = Minio(\n   \
+          \     creds['endpoint'],\n        access_key=creds['access_key'],\n    \
+          \    secret_key=creds['secret_key'],\n        session_token=creds['session_token'],\n\
+          \        secure=True\n    )\n\n    # Create bucket if it doesn't exist\n\
+          \    if not client.bucket_exists(bucket_name):\n        client.make_bucket(bucket_name)\n\
+          \        print(f\"Created bucket: {bucket_name}\")\n\n    # Sanitize the\
+          \ path to ensure S3 compatibility\n    full_path = sanitize_s3_path(object_path)\n\
+          \    print(f\"S3 path after sanitization: {full_path}\")\n\n    # Implement\
+          \ retry logic for transient failures\n    max_retries = 3\n    retry_delay\
+          \ = 2\n\n    for attempt in range(max_retries):\n        try:\n        \
+          \    client.fput_object(bucket_name, full_path, artifact.path)\n       \
+          \     # Verify upload worked\n            stat = client.stat_object(bucket_name,\
+          \ full_path)\n            print(f\"Upload verified: size={stat.size} bytes,\
+          \ etag={stat.etag}\")\n            break\n        except Exception as e:\n\
+          \            print(f\"Attempt {attempt+1}/{max_retries} failed: {str(e)}\"\
+          )\n            if attempt < max_retries - 1:\n                print(f\"\
+          Retrying in {retry_delay} seconds...\")\n                time.sleep(retry_delay)\n\
+          \                retry_delay *= 2  # Exponential backoff\n            else:\n\
+          \                print(f\"All retry attempts failed\")\n               \
+          \ raise\n\n    # Add metadata \n    if hasattr(artifact, 'metadata') and\
+          \ artifact.metadata:\n        try:\n            tags = Tags.new_object_tags()\n\
+          \            tag_count = 0\n\n            for key, value in artifact.metadata.items():\n\
+          \                if isinstance(value, (str, int, float, bool)):\n      \
+          \              # Use less restrictive regex for keys\n                 \
+          \   valid_key = re.sub(r'[^a-zA-Z0-9\\-\\.\\_\\:\\@]', '-', str(key))[:128]\n\
+          \n                    # Use less restrictive regex for values\n        \
+          \            str_value = str(value)\n                    if len(str_value)\
+          \ > 250:\n                        str_value = str_value[:250]\n\n      \
+          \              # Allow more characters in values, just remove control chars\n\
+          \                    str_value = re.sub(r'[\\x00-\\x1F\\x7F]', '', str_value)\n\
+          \n                    # Only add if both key and value are valid\n     \
+          \               if valid_key and str_value and tag_count < 10:  # S3 has\
+          \ 10 tag limit\n                        tags[valid_key] = str_value\n  \
+          \                      tag_count += 1\n\n            if tags:\n        \
+          \        client.set_object_tags(bucket_name, full_path, tags)\n        \
+          \        print(f\"Added {tag_count} metadata tags to the object\")\n   \
+          \     except Exception as e:\n            print(f\"Warning: Could not set\
+          \ object tags: {e}\")\n\n    print(f\"Successfully uploaded {artifact.path}\
+          \ to s3://{bucket_name}/{full_path}\")\n\n"
+        image: python:3.9
+    exec-split-data:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - split_data
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.11.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'numpy' 'scikit-learn'\
+          \ 'joblib' && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef split_data(dataset: Input[Dataset], \n               train_data:\
+          \ Output[Dataset],\n               test_data: Output[Dataset],\n       \
+          \        split_info: Output[Dataset],\n               test_size: float =\
+          \ 0.3, \n               random_state: int = 42):\n    import joblib\n  \
+          \  import numpy as np\n    import json\n    import os\n    import datetime\n\
+          \    from sklearn.model_selection import train_test_split\n\n    # Load\
+          \ the data\n    combined_data = joblib.load(dataset.path)\n    X = combined_data[:,\
+          \ :-1]  # All columns except the last one\n    y = combined_data[:, -1]\
+          \   # Last column is the target\n\n    # Split the data\n    X_train, X_test,\
+          \ y_train, y_test = train_test_split(\n        X, y, test_size=test_size,\
+          \ random_state=random_state, stratify=y\n    )\n\n    # Create combined\
+          \ datasets again\n    train_data_combined = np.column_stack((X_train, y_train))\n\
+          \    test_data_combined = np.column_stack((X_test, y_test))\n\n    # Save\
+          \ the splits\n    joblib.dump(train_data_combined, train_data.path)\n  \
+          \  joblib.dump(test_data_combined, test_data.path)\n\n    # Convert numpy\
+          \ types to native Python types for JSON serialization\n    train_unique,\
+          \ train_counts = np.unique(y_train, return_counts=True)\n    test_unique,\
+          \ test_counts = np.unique(y_test, return_counts=True)\n\n    # Convert numpy\
+          \ arrays to regular Python lists/types\n    train_class_distribution = {int(k):\
+          \ int(v) for k, v in zip(train_unique, train_counts)}\n    test_class_distribution\
+          \ = {int(k): int(v) for k, v in zip(test_unique, test_counts)}\n\n    split_info_dict\
+          \ = {\n        \"train_samples\": int(X_train.shape[0]),\n        \"test_samples\"\
+          : int(X_test.shape[0]),\n        \"train_class_distribution\": train_class_distribution,\n\
+          \        \"test_class_distribution\": test_class_distribution\n    }\n\n\
+          \    with open(split_info.path, 'w') as f:\n        json.dump(split_info_dict,\
+          \ f)\n\n    # Add metadata to artifacts\n    train_data.metadata.update({\n\
+          \        'creation_time': str(datetime.datetime.now()),\n        'description':\
+          \ 'Training data split',\n        'samples': int(X_train.shape[0]),\n  \
+          \      'features': int(X_train.shape[1]),\n        'positive_samples': int(np.sum(y_train)),\n\
+          \        'negative_samples': int(np.sum(y_train == 0)),\n        'split_ratio':\
+          \ f'{1-test_size:.2f}/{test_size:.2f}'\n    })\n\n    test_data.metadata.update({\n\
+          \        'creation_time': str(datetime.datetime.now()),\n        'description':\
+          \ 'Test data split',\n        'samples': int(X_test.shape[0]),\n       \
+          \ 'features': int(X_test.shape[1]),\n        'positive_samples': int(np.sum(y_test)),\n\
+          \        'negative_samples': int(np.sum(y_test == 0)),\n        'split_ratio':\
+          \ f'{1-test_size:.2f}/{test_size:.2f}'\n    })\n\n    split_info.metadata.update({\n\
+          \        'creation_time': str(datetime.datetime.now()),\n        'description':\
+          \ 'Information about the train/test split',\n        'test_size': test_size,\n\
+          \        'random_state': random_state\n    })\n\n"
+        image: python:3.9
+    exec-train-svm:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - train_svm
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.11.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'scikit-learn'\
+          \ 'joblib' && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef train_svm(train_data: Input[Dataset], \n              model:\
+          \ Output[Model],\n              C: float = 1.0, \n              kernel:\
+          \ str = 'rbf',\n              random_state: int = 42):\n    import joblib\n\
+          \    import numpy as np\n    import datetime\n    import json\n    from\
+          \ sklearn.svm import SVC\n\n    # Load training data\n    train_data_combined\
+          \ = joblib.load(train_data.path)\n    X_train = train_data_combined[:, :-1]\n\
+          \    y_train = train_data_combined[:, -1]\n\n    # Train the model\n   \
+          \ svm_model = SVC(C=C, kernel=kernel, random_state=random_state, probability=True)\n\
+          \    svm_model.fit(X_train, y_train)\n\n    # Save the model\n    joblib.dump(svm_model,\
+          \ model.path)\n\n    # Add metadata\n    model.metadata.update({\n     \
+          \   'framework': 'scikit-learn',\n        'model_type': 'SVC',\n       \
+          \ 'creation_time': str(datetime.datetime.now()),\n        'version': '1.0',\n\
+          \        'hyperparameters': json.dumps({\n            'C': C,\n        \
+          \    'kernel': kernel,\n            'random_state': random_state\n     \
+          \   }),\n        'training_dataset_size': X_train.shape[0],\n        'feature_count':\
+          \ X_train.shape[1],\n        'description': 'Support Vector Machine classifier\
+          \ for diabetes prediction'\n    })\n\n"
+        image: python:3.9
+pipelineInfo:
+  description: A demonstration pipeline for diabetes classification using SVM model
+    with artifact tracking in MinIO
+  name: diabetes-svm-classification-pipeline
+root:
+  dag:
+    tasks:
+      authenticate-minio:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-authenticate-minio
+        inputs:
+          parameters:
+            keycloak_client_id:
+              componentInputParameter: keycloak_client_id
+            keycloak_client_secret:
+              componentInputParameter: keycloak_client_secret
+            keycloak_password:
+              componentInputParameter: keycloak_password
+            keycloak_url:
+              componentInputParameter: keycloak_url
+            keycloak_username:
+              componentInputParameter: keycloak_username
+            minio_endpoint:
+              componentInputParameter: minio_endpoint
+        taskInfo:
+          name: authenticate-minio
+      create-run-metadata:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-create-run-metadata
+        inputs:
+          parameters:
+            pipeline_name:
+              componentInputParameter: pipeline_name
+            random_state:
+              componentInputParameter: random_state
+            run_id:
+              componentInputParameter: run_name
+            svm_C:
+              componentInputParameter: svm_C
+            svm_kernel:
+              componentInputParameter: svm_kernel
+            test_size:
+              componentInputParameter: test_size
+        taskInfo:
+          name: create-run-metadata
+      evaluate-model:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-evaluate-model
+        dependentTasks:
+        - load-data
+        - preprocess-data
+        - train-svm
+        inputs:
+          artifacts:
+            feature_names:
+              taskOutputArtifact:
+                outputArtifactKey: feature_names
+                producerTask: load-data
+            model:
+              taskOutputArtifact:
+                outputArtifactKey: model
+                producerTask: train-svm
+            test_data:
+              taskOutputArtifact:
+                outputArtifactKey: processed_test_data
+                producerTask: preprocess-data
+          parameters:
+            model_name:
+              runtimeValue:
+                constant: Support Vector Machine
+        taskInfo:
+          name: evaluate-model
+      load-data:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-load-data
+        taskInfo:
+          name: load-data
+      preprocess-data:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-preprocess-data
+        dependentTasks:
+        - split-data
+        inputs:
+          artifacts:
+            test_data:
+              taskOutputArtifact:
+                outputArtifactKey: test_data
+                producerTask: split-data
+            train_data:
+              taskOutputArtifact:
+                outputArtifactKey: train_data
+                producerTask: split-data
+        taskInfo:
+          name: preprocess-data
+      save-to-minio:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-save-to-minio
+        dependentTasks:
+        - authenticate-minio
+        - load-data
+        inputs:
+          artifacts:
+            artifact:
+              taskOutputArtifact:
+                outputArtifactKey: metadata
+                producerTask: load-data
+            minio_credentials:
+              taskOutputArtifact:
+                outputArtifactKey: minio_credentials
+                producerTask: authenticate-minio
+          parameters:
+            artifact_name:
+              runtimeValue:
+                constant: dataset_metadata.json
+            artifact_type:
+              runtimeValue:
+                constant: metadata
+            bucket_name:
+              componentInputParameter: minio_bucket
+            pipeline_name:
+              componentInputParameter: pipeline_name
+            run_id:
+              componentInputParameter: run_name
+        taskInfo:
+          name: save-to-minio
+      save-to-minio-2:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-save-to-minio-2
+        dependentTasks:
+        - authenticate-minio
+        - train-svm
+        inputs:
+          artifacts:
+            artifact:
+              taskOutputArtifact:
+                outputArtifactKey: model
+                producerTask: train-svm
+            minio_credentials:
+              taskOutputArtifact:
+                outputArtifactKey: minio_credentials
+                producerTask: authenticate-minio
+          parameters:
+            artifact_name:
+              runtimeValue:
+                constant: svm_model.joblib
+            artifact_type:
+              runtimeValue:
+                constant: models
+            bucket_name:
+              componentInputParameter: minio_bucket
+            pipeline_name:
+              componentInputParameter: pipeline_name
+            run_id:
+              componentInputParameter: run_name
+        taskInfo:
+          name: save-to-minio-2
+      save-to-minio-3:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-save-to-minio-3
+        dependentTasks:
+        - authenticate-minio
+        - evaluate-model
+        inputs:
+          artifacts:
+            artifact:
+              taskOutputArtifact:
+                outputArtifactKey: metrics
+                producerTask: evaluate-model
+            minio_credentials:
+              taskOutputArtifact:
+                outputArtifactKey: minio_credentials
+                producerTask: authenticate-minio
+          parameters:
+            artifact_name:
+              runtimeValue:
+                constant: svm_metrics.json
+            artifact_type:
+              runtimeValue:
+                constant: metrics
+            bucket_name:
+              componentInputParameter: minio_bucket
+            pipeline_name:
+              componentInputParameter: pipeline_name
+            run_id:
+              componentInputParameter: run_name
+        taskInfo:
+          name: save-to-minio-3
+      save-to-minio-4:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-save-to-minio-4
+        dependentTasks:
+        - authenticate-minio
+        - evaluate-model
+        inputs:
+          artifacts:
+            artifact:
+              taskOutputArtifact:
+                outputArtifactKey: confusion_matrix_plot
+                producerTask: evaluate-model
+            minio_credentials:
+              taskOutputArtifact:
+                outputArtifactKey: minio_credentials
+                producerTask: authenticate-minio
+          parameters:
+            artifact_name:
+              runtimeValue:
+                constant: svm_confusion_matrix.html
+            artifact_type:
+              runtimeValue:
+                constant: plots
+            bucket_name:
+              componentInputParameter: minio_bucket
+            pipeline_name:
+              componentInputParameter: pipeline_name
+            run_id:
+              componentInputParameter: run_name
+        taskInfo:
+          name: save-to-minio-4
+      save-to-minio-5:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-save-to-minio-5
+        dependentTasks:
+        - authenticate-minio
+        - evaluate-model
+        inputs:
+          artifacts:
+            artifact:
+              taskOutputArtifact:
+                outputArtifactKey: roc_curve_plot
+                producerTask: evaluate-model
+            minio_credentials:
+              taskOutputArtifact:
+                outputArtifactKey: minio_credentials
+                producerTask: authenticate-minio
+          parameters:
+            artifact_name:
+              runtimeValue:
+                constant: svm_roc_curve.html
+            artifact_type:
+              runtimeValue:
+                constant: plots
+            bucket_name:
+              componentInputParameter: minio_bucket
+            pipeline_name:
+              componentInputParameter: pipeline_name
+            run_id:
+              componentInputParameter: run_name
+        taskInfo:
+          name: save-to-minio-5
+      save-to-minio-6:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-save-to-minio-6
+        dependentTasks:
+        - authenticate-minio
+        - evaluate-model
+        inputs:
+          artifacts:
+            artifact:
+              taskOutputArtifact:
+                outputArtifactKey: feature_importance_plot
+                producerTask: evaluate-model
+            minio_credentials:
+              taskOutputArtifact:
+                outputArtifactKey: minio_credentials
+                producerTask: authenticate-minio
+          parameters:
+            artifact_name:
+              runtimeValue:
+                constant: svm_feature_importance.html
+            artifact_type:
+              runtimeValue:
+                constant: plots
+            bucket_name:
+              componentInputParameter: minio_bucket
+            pipeline_name:
+              componentInputParameter: pipeline_name
+            run_id:
+              componentInputParameter: run_name
+        taskInfo:
+          name: save-to-minio-6
+      save-to-minio-7:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-save-to-minio-7
+        dependentTasks:
+        - authenticate-minio
+        - create-run-metadata
+        inputs:
+          artifacts:
+            artifact:
+              taskOutputArtifact:
+                outputArtifactKey: metadata_file
+                producerTask: create-run-metadata
+            minio_credentials:
+              taskOutputArtifact:
+                outputArtifactKey: minio_credentials
+                producerTask: authenticate-minio
+          parameters:
+            artifact_name:
+              runtimeValue:
+                constant: run_parameters.json
+            artifact_type:
+              runtimeValue:
+                constant: metadata
+            bucket_name:
+              componentInputParameter: minio_bucket
+            pipeline_name:
+              componentInputParameter: pipeline_name
+            run_id:
+              componentInputParameter: run_name
+        taskInfo:
+          name: save-to-minio-7
+      split-data:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-split-data
+        dependentTasks:
+        - load-data
+        inputs:
+          artifacts:
+            dataset:
+              taskOutputArtifact:
+                outputArtifactKey: dataset
+                producerTask: load-data
+          parameters:
+            random_state:
+              componentInputParameter: random_state
+            test_size:
+              componentInputParameter: test_size
+        taskInfo:
+          name: split-data
+      train-svm:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-train-svm
+        dependentTasks:
+        - preprocess-data
+        inputs:
+          artifacts:
+            train_data:
+              taskOutputArtifact:
+                outputArtifactKey: processed_train_data
+                producerTask: preprocess-data
+          parameters:
+            C:
+              componentInputParameter: svm_C
+            kernel:
+              componentInputParameter: svm_kernel
+            random_state:
+              componentInputParameter: random_state
+        taskInfo:
+          name: train-svm
+  inputDefinitions:
+    parameters:
+      keycloak_client_id:
+        defaultValue: minio
+        isOptional: true
+        parameterType: STRING
+      keycloak_client_secret:
+        defaultValue: CJHIv1jYJfokZc73lUqwtkL12YBi69IB
+        isOptional: true
+        parameterType: STRING
+      keycloak_password:
+        defaultValue: g.fatouros-huma1ne!
+        isOptional: true
+        parameterType: STRING
+      keycloak_url:
+        defaultValue: https://keycloak.humaine-horizon.eu/realms/humaine/protocol/openid-connect/token
+        isOptional: true
+        parameterType: STRING
+      keycloak_username:
+        defaultValue: g.fatouros-dev
+        isOptional: true
+        parameterType: STRING
+      minio_bucket:
+        defaultValue: innov-test-bucket
+        isOptional: true
+        parameterType: STRING
+      minio_endpoint:
+        defaultValue: s3-minio.humaine-horizon.eu
+        isOptional: true
+        parameterType: STRING
+      pipeline_name:
+        defaultValue: diabetes-svm-classification
+        isOptional: true
+        parameterType: STRING
+      random_state:
+        defaultValue: 42.0
+        isOptional: true
+        parameterType: NUMBER_INTEGER
+      run_name:
+        defaultValue: ''
+        isOptional: true
+        parameterType: STRING
+      svm_C:
+        defaultValue: 1.0
+        isOptional: true
+        parameterType: NUMBER_DOUBLE
+      svm_kernel:
+        defaultValue: rbf
+        isOptional: true
+        parameterType: STRING
+      test_size:
+        defaultValue: 0.3
+        isOptional: true
+        parameterType: NUMBER_DOUBLE
+schemaVersion: 2.1.0
+sdkVersion: kfp-2.11.0

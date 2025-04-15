@@ -11,7 +11,7 @@ from agents.code import function_map, read_prompt
 from utils.helper_functions import setup_logging, decode_jwt, extract_token_from_headers, extract_user_from_payload
 from utils.api_functions import send_follow_up_questions
 from utils.config import settings
-# from literalai import AsyncLiteralClient
+from literalai import AsyncLiteralClient
 from typing import Optional, Dict
 from chainlit.types import ThreadDict
 
@@ -20,8 +20,8 @@ logger = setup_logging('CHAT', level=logging.ERROR)
 logging.getLogger("httpx").setLevel("WARNING")
 
 client = AsyncOpenAI()
-# lai = AsyncLiteralClient()
-# lai.instrument_openai()
+lai = AsyncLiteralClient()
+lai.instrument_openai()
 
 system_prompt = read_prompt('system')
 
@@ -128,7 +128,7 @@ async def process_stream(stream, message_history, msg):
             logger.error(f"Invalid JSON in final tool call: {e}")
 
 # @lai.step(name="Function Processor", type="tool")
-@cl.step(name="Agent Processor", type="tool")
+@cl.step(name="Agent Router", type="tool")
 async def process_function_call(function_call_data, message_history, msg):
     logger.info(f"Function call data: {function_call_data}")
     try:
@@ -189,7 +189,7 @@ async def main(message: cl.Message):
     temp_history = message_history.copy()
 
     # Process the completion stream, attaching it to the current session and message
-    await process_stream(completion, temp_history, msg)
+    await process_stream(completion, message_history, msg)
     if msg.content.strip():
         message_history.append({"role": "assistant", "content": msg.content})
         # plotly_figure = await generate_plotly_figure(msg.content)
