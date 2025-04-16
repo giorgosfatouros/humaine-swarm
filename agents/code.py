@@ -1282,6 +1282,104 @@ async def get_experiment_details(
         logger.error(f"Error retrieving Kubeflow experiment details: {str(e)}")
         return {"error": str(e)}
 
+@cl.step(type="tool", name="Get User Namespace", show_input=False)
+async def get_user_namespace() -> Dict:
+    """
+    Gets user namespace in context config.
+    
+    Returns:
+        Dict containing the Kubernetes namespace from the local context file or empty if it wasn't set
+    """
+    try:
+        kf_client = get_kubeflow_client()
+        namespace = kf_client.get_user_namespace()
+        
+        return {
+            "namespace": namespace if namespace else "",
+            "message": "Namespace retrieved successfully" if namespace else "No namespace found in context"
+        }
+            
+    except Exception as e:
+        logger.error(f"Error retrieving user namespace: {str(e)}")
+        return {"error": str(e)}
+
+@cl.step(type="tool", name="Create Experiment", show_input=False)
+async def create_experiment(
+    name: str,
+    description: Optional[str] = None,
+    namespace: Optional[str] = None
+) -> Dict:
+    """
+    Creates a new experiment.
+    
+    Args:
+        name: Name of the experiment
+        description: Optional description of the experiment
+        namespace: Optional Kubernetes namespace to use
+        
+    Returns:
+        Dict containing the created experiment details
+    """
+    try:
+        if not name or not name.strip():
+            return {"error": "Experiment name is required"}
+            
+        kf_client = get_kubeflow_client()
+        experiment = kf_client.create_experiment(
+            name=name,
+            description=description,
+            namespace=namespace
+        )
+        
+        # Extract the experiment details
+        experiment_details = {
+            "id": experiment.experiment_id,
+            "name": experiment.display_name,
+            "description": experiment.description,
+            "namespace": namespace or experiment.namespace if hasattr(experiment, 'namespace') else "default",
+            "created_at": str(experiment.created_at) if hasattr(experiment, 'created_at') else None
+        }
+        
+        return experiment_details
+            
+    except Exception as e:
+        logger.error(f"Error creating experiment: {str(e)}")
+        return {"error": str(e)}
+
+@cl.step(type="tool", name="Get Pipeline ID", show_input=False)
+async def get_pipeline_id(name: str) -> Dict:
+    """
+    Gets the ID of a pipeline by its name.
+    
+    Args:
+        name: Pipeline name
+        
+    Returns:
+        Dict containing the pipeline ID if a pipeline with the name exists
+    """
+    try:
+        if not name or not name.strip():
+            return {"error": "Pipeline name is required"}
+            
+        kf_client = get_kubeflow_client()
+        pipeline_id = kf_client.get_pipeline_id(name=name)
+        
+        if not pipeline_id:
+            return {
+                "message": f"No pipeline found with name '{name}'",
+                "pipeline_id": None
+            }
+            
+        return {
+            "pipeline_id": pipeline_id,
+            "pipeline_name": name,
+            "message": "Pipeline ID retrieved successfully"
+        }
+            
+    except Exception as e:
+        logger.error(f"Error retrieving pipeline ID: {str(e)}")
+        return {"error": str(e)}
+
 function_map = {
     "get_docs": get_docs,
     "get_minio_info": get_minio_info,
@@ -1297,5 +1395,8 @@ function_map = {
     "compare_pipeline_runs": compare_pipeline_runs,
     "list_user_buckets": list_user_buckets,
     "list_experiments": list_experiments,
-    "get_experiment_details": get_experiment_details
+    "get_experiment_details": get_experiment_details,
+    "get_user_namespace": get_user_namespace,
+    "create_experiment": create_experiment,
+    "get_pipeline_id": get_pipeline_id
 }

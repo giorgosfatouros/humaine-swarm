@@ -452,5 +452,62 @@ functions = [
                 "additionalProperties": False
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_user_namespace",
+            "description": "Gets user namespace in Kubeflow",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+                "additionalProperties": False
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_experiment",
+            "description": "Creates a new Kubeflow experiment",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Name of the experiment"
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "Optional description of the experiment"
+                    },
+                    "namespace": {
+                        "type": "string",
+                        "description": "Optional Kubernetes namespace to use"
+                    }
+                },
+                "required": ["name"],
+                "additionalProperties": False
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_pipeline_id",
+            "description": "Gets the ID of a Kubeflow pipeline by its name",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Pipeline name"
+                    }
+                },
+                "required": ["name"],
+                "additionalProperties": False
+            }
+        }
     }
 ]
