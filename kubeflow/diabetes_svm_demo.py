@@ -988,14 +988,14 @@ if __name__ == "__main__":
     pipeline_name = 'diabetes-svm-classification-pipeline'
     pipeline_description = 'A demonstration pipeline for diabetes classification using SVM model with artifact tracking in MinIO'
     
-    uploaded_pipeline = client.upload_pipeline(
-        pipeline_package_path=pipeline_package_path,
-        pipeline_name=pipeline_name,
-        description=pipeline_description,
-        namespace="kubeflow-user-example-com"
-    )
+    # uploaded_pipeline = client.upload_pipeline(
+    #     pipeline_package_path=pipeline_package_path,
+    #     pipeline_name=pipeline_name,
+    #     description=pipeline_description,
+    #     namespace="kubeflow-user-example-com"
+    # )
     
-    print(f"Pipeline uploaded successfully: {uploaded_pipeline}")
+    # print(f"Pipeline uploaded successfully: {uploaded_pipeline}")
     
     # Create a run from the uploaded pipeline
     run = client.create_run_from_pipeline_func(
@@ -1012,7 +1012,7 @@ if __name__ == "__main__":
             # 'minio_bucket': os.getenv('MINIO_BUCKET'),
             'run_name': 'run-1'
         },
-        namespace='kubeflow-user-example-com',
+        namespace=os.getenv('KUBEFLOW_NAMESPACE'),
         experiment_name='Diabetes Classification Experiments'
     )
     

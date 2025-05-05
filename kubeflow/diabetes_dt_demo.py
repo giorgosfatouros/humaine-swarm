@@ -985,7 +985,7 @@ if __name__ == "__main__":
         pipeline_package_path=pipeline_package_path,
         pipeline_name=pipeline_name,
         description=pipeline_description,
-        namespace='kubeflow-user-example-com'
+        namespace=os.getenv('KUBEFLOW_NAMESPACE')
     )
     
     print(f"Pipeline uploaded successfully with ID: {uploaded_pipeline}")
@@ -1001,7 +1001,7 @@ if __name__ == "__main__":
             'pipeline_name': 'diabetes-dt-classification',
             'run_name': 'run-1'
         },
-        namespace='kubeflow-user-example-com',
+        namespace=os.getenv('KUBEFLOW_NAMESPACE'),
         experiment_name='Diabetes Classification Experiments'
     )
     

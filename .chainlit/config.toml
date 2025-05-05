@@ -63,7 +63,7 @@ name = "HumAIne Swarm Assistant"
 default_collapse_content = true
 
 # Chain of Thought (CoT) display mode. Can be "hidden", "tool_call" or "full".
-cot = "full"
+cot = "tool_call"
 
 # Link to your github repo. This will add a github button in the UI's header.
 # github = ""
@@ -88,8 +88,8 @@ custom_meta_image_url = "/public/humaine_logo_tagline"
 # custom_build = "./public/build"
 
 [UI.theme]
-    default = "dark"
-    #layout = "wide"
+    default = "light"
+    layout = "wide"
     #font_family = "Inter, sans-serif"
 # Override default MUI light theme. (Check theme.ts)
 [UI.theme.light]

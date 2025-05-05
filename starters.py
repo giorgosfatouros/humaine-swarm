@@ -8,17 +8,17 @@ async def set_starters():
         cl.Starter(
             label="Which are HumAIne's AI paradigms?",
             message="Which are HumAIne's AI paradigms?",
-            icon="🤖",
+            icon="/public/intelligent-assistant.png",
         ),
         cl.Starter(
             label="What kind of data have I available?",
             message="What kind of data have I available?",
-            icon="📊",
+            icon="/public/s_data.png",
             ),
         cl.Starter(
             label="Are there any ready-to-use Pipelines for my data?",
             message="Are there any ready-to-use Pipelines for my data?",
-            icon="⚙️",
+            icon="/public/s_pipeline.png",
             ),
        
     ]
