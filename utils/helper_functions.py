@@ -324,7 +324,7 @@ class KFPClientManager:
             host=self._api_url,
             cookies=session_cookies,
             namespace=os.getenv("KUBEFLOW_NAMESPACE")
-            )
+        )
 
     def create_kfp_client(self) -> kfp.Client:
         """Get a newly authenticated Kubeflow Pipelines client."""
@@ -332,7 +332,7 @@ class KFPClientManager:
             
 def get_kubeflow_client() -> kfp.Client:
     kfp_client_manager = KFPClientManager(
-        api_url=os.getenv("KUBEFLOW_HOST") + "/pipeline",
+        api_url=os.getenv("KUBEFLOW_HOST"),
         skip_tls_verify=True,
 
         dex_username=os.getenv("KUBEFLOW_USERNAME"),

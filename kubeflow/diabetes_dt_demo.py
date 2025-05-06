@@ -822,16 +822,12 @@ def diabetes_classification_pipeline(
     minio_endpoint: str = "s3-minio.humaine-horizon.eu",
     minio_bucket: str = "innov-test-bucket",
     pipeline_name: str = "diabetes-dt-classification",
-    run_name: str = "",  # Use run_name instead of run_id for better compatibility with KFP
 ):
     import datetime
 
     # Generate a consistent run ID
-    if run_name!="":
-        version_id = run_name
-    else:
-        timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-        version_id = f"run-{timestamp}"
+    timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    version_id = f"run-{timestamp}"
 
     print(f"Run ID: {version_id}")
     
@@ -978,17 +974,17 @@ if __name__ == "__main__":
     client = get_kubeflow_client()
     
     # Upload the pipeline
-    pipeline_name = 'diabetes-dtree-classification-pipeline'
+    pipeline_name = 'diabetes-dt-classification'
     pipeline_description = 'A demonstration pipeline for diabetes classification using Decision Tree model with artifact tracking in MinIO'
     
-    uploaded_pipeline = client.upload_pipeline(
-        pipeline_package_path=pipeline_package_path,
-        pipeline_name=pipeline_name,
-        description=pipeline_description,
-        namespace=os.getenv('KUBEFLOW_NAMESPACE')
-    )
+    # uploaded_pipeline = client.upload_pipeline(
+    #     pipeline_package_path=pipeline_package_path,
+    #     pipeline_name=pipeline_name,
+    #     description=pipeline_description,
+    #     namespace=os.getenv('KUBEFLOW_NAMESPACE')
+    # )
     
-    print(f"Pipeline uploaded successfully with ID: {uploaded_pipeline}")
+    # print(f"Pipeline uploaded successfully with ID: {uploaded_pipeline}")
     
     # Create a run from the uploaded pipeline
     run = client.create_run_from_pipeline_func(
@@ -997,9 +993,7 @@ if __name__ == "__main__":
             'test_size': 0.5,
             'random_state': 42,
             'dt_max_depth': 5,
-            # Removed credential arguments since they're now hardcoded in the pipeline
-            'pipeline_name': 'diabetes-dt-classification',
-            'run_name': 'run-1'
+            'pipeline_name': pipeline_name,
         },
         namespace=os.getenv('KUBEFLOW_NAMESPACE'),
         experiment_name='Diabetes Classification Experiments'

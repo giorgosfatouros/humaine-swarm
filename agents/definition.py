@@ -30,10 +30,6 @@ functions = [
                         "type": "string",
                         "description": "Optional term to search for in pipeline names and descriptions (case-insensitive partial match)"
                     },
-                    "namespace": {
-                        "type": "string",
-                        "description": "Optional namespace to filter pipelines (None returns shared pipelines)"
-                    },
                     "page_size": {
                         "type": "integer",
                         "description": "Number of results to return per page (default: 20)",
@@ -59,14 +55,10 @@ functions = [
         "type": "function",
         "function": {
             "name": "get_minio_info",
-            "description": "Retrieve information about MinIO buckets and objects",
+            "description": "Retrieve information about objects in a specific MinIO bucket",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "bucket_name": {
-                        "type": "string",
-                        "description": "Optional name of the MinIO bucket to query. If not provided, lists all buckets."
-                    },
                     "prefix": {
                         "type": "string",
                         "description": "Optional prefix to filter objects (like a folder path)",
@@ -239,7 +231,7 @@ functions = [
     {
         "type": "function",
         "function": {
-            "name": "get_pipeline_artifacts",
+            "name": "get_pipeline_artifacts_from_MinIO",
             "description": "Retrieve actual ML pipeline artifacts (models, metrics, visualizations) stored in MinIO. Use for exploring pipeline outputs.",
             "parameters": {
                 "type": "object",
@@ -248,17 +240,13 @@ functions = [
                         "type": "string",
                         "description": "Name of the pipeline to query artifacts for (e.g. 'diabetes-svm-classification')"
                     },
-                    "run_id": {
+                    "run_name": {
                         "type": "string",
-                        "description": "Optional specific run ID to filter artifacts"
+                        "description": "Optional specific run name to filter artifacts. It is MinIO object name that contains artifacts for a specific run of a pipeline"
                     },
                     "artifact_type": {
                         "type": "string",
                         "description": "Optional artifact type to filter (e.g. 'models', 'metrics', 'plots')"
-                    },
-                    "bucket_name": {
-                        "type": "string",
-                        "description": "Storage bucket name where artifacts are stored (use list_user_buckets first if unsure)"
                     },
                     "max_items": {
                         "type": "integer",
@@ -266,7 +254,7 @@ functions = [
                         "default": 20
                     }
                 },
-                "required": ["pipeline_name", "bucket_name"],
+                "required": ["pipeline_name"],
                 "additionalProperties": False
             }
         }
@@ -283,20 +271,16 @@ functions = [
                         "type": "string",
                         "description": "Name of the pipeline (e.g. 'diabetes-svm-classification')"
                     },
-                    "run_id": {
+                    "run_name": {
                         "type": "string",
-                        "description": "Optional specific run ID to get metrics for"
+                        "description": "Optional specific run name to get metrics for. It is MinIO object name that contains artifacts for a specific run of a pipeline"
                     },
                     "model_name": {
                         "type": "string",
                         "description": "Optional model name to filter metrics (e.g. 'Support Vector Machine')"
                     },
-                    "bucket_name": {
-                        "type": "string",
-                        "description": "Storage bucket name where metrics are stored (use list_user_buckets first if unsure)"
-                    }
                 },
-                "required": ["pipeline_name", "bucket_name"],
+                "required": ["pipeline_name"],
                 "additionalProperties": False
             }
         }
@@ -313,9 +297,9 @@ functions = [
                         "type": "string",
                         "description": "Name of the pipeline (e.g. 'diabetes-svm-classification')"
                     },
-                    "run_id": {
+                    "run_name": {
                         "type": "string",
-                        "description": "Run ID to get visualizations for"
+                        "description": "Run name to get visualizations for. It is MinIO object name that contains artifacts for a specific run of a pipeline"
                     },
                     "visualization_type": {
                         "type": "string",
@@ -325,12 +309,8 @@ functions = [
                         "type": "string",
                         "description": "Optional model name part to filter by (e.g. 'svm')"
                     },
-                    "bucket_name": {
-                        "type": "string",
-                        "description": "Storage bucket name where visualizations are stored (use list_user_buckets first if unsure)"
-                    }
                 },
-                "required": ["pipeline_name", "run_id", "visualization_type", "bucket_name"],
+                "required": ["pipeline_name", "run_id", "visualization_type"],
                 "additionalProperties": False
             }
         }
@@ -347,12 +327,12 @@ functions = [
                         "type": "string",
                         "description": "Name of the pipeline (e.g. 'diabetes-svm-classification')"
                     },
-                    "run_ids": {
+                    "run_names": {
                         "type": "array",
                         "items": {
                             "type": "string"
                         },
-                        "description": "List of run IDs to compare"
+                        "description": "List of run names to compare. It is MinIO object name that contains artifacts for a specific run of a pipeline"
                     },
                     "metric_names": {
                         "type": "array",
@@ -456,8 +436,8 @@ functions = [
     {
         "type": "function",
         "function": {
-            "name": "get_user_namespace",
-            "description": "Gets user namespace in Kubeflow",
+            "name": "get_user_kubeflow_namespace",
+            "description": "Gets user namespace in kubeflow. It is unrelated to MinIO buckets",
             "parameters": {
                 "type": "object",
                 "properties": {},
@@ -506,6 +486,25 @@ functions = [
                     }
                 },
                 "required": ["name"],
+                "additionalProperties": False
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_minio_buckets",
+            "description": "List all available MinIO buckets with minimal information, helpful when you need a bucket name for other functions",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "max_buckets": {
+                        "type": "integer",
+                        "description": "Maximum number of buckets to return",
+                        "default": 20
+                    }
+                },
+                "required": [],
                 "additionalProperties": False
             }
         }

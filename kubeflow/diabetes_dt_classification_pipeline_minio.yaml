@@ -12,7 +12,6 @@
 #    minio_endpoint: str [Default: 's3-minio.humaine-horizon.eu']
 #    pipeline_name: str [Default: 'diabetes-dt-classification']
 #    random_state: int [Default: 42.0]
-#    run_name: str [Default: '']
 #    test_size: float [Default: 0.3]
 components:
   comp-authenticate-minio:
@@ -1714,7 +1713,8 @@ root:
             random_state:
               componentInputParameter: random_state
             run_id:
-              componentInputParameter: run_name
+              runtimeValue:
+                constant: run-20250506-211026
             test_size:
               componentInputParameter: test_size
         taskInfo:
@@ -1804,7 +1804,8 @@ root:
             pipeline_name:
               componentInputParameter: pipeline_name
             run_id:
-              componentInputParameter: run_name
+              runtimeValue:
+                constant: run-20250506-211026
         taskInfo:
           name: save-to-minio
       save-to-minio-2:
@@ -1837,7 +1838,8 @@ root:
             pipeline_name:
               componentInputParameter: pipeline_name
             run_id:
-              componentInputParameter: run_name
+              runtimeValue:
+                constant: run-20250506-211026
         taskInfo:
           name: save-to-minio-2
       save-to-minio-3:
@@ -1870,7 +1872,8 @@ root:
             pipeline_name:
               componentInputParameter: pipeline_name
             run_id:
-              componentInputParameter: run_name
+              runtimeValue:
+                constant: run-20250506-211026
         taskInfo:
           name: save-to-minio-3
       save-to-minio-4:
@@ -1903,7 +1906,8 @@ root:
             pipeline_name:
               componentInputParameter: pipeline_name
             run_id:
-              componentInputParameter: run_name
+              runtimeValue:
+                constant: run-20250506-211026
         taskInfo:
           name: save-to-minio-4
       save-to-minio-5:
@@ -1936,7 +1940,8 @@ root:
             pipeline_name:
               componentInputParameter: pipeline_name
             run_id:
-              componentInputParameter: run_name
+              runtimeValue:
+                constant: run-20250506-211026
         taskInfo:
           name: save-to-minio-5
       save-to-minio-6:
@@ -1969,7 +1974,8 @@ root:
             pipeline_name:
               componentInputParameter: pipeline_name
             run_id:
-              componentInputParameter: run_name
+              runtimeValue:
+                constant: run-20250506-211026
         taskInfo:
           name: save-to-minio-6
       save-to-minio-7:
@@ -2002,7 +2008,8 @@ root:
             pipeline_name:
               componentInputParameter: pipeline_name
             run_id:
-              componentInputParameter: run_name
+              runtimeValue:
+                constant: run-20250506-211026
         taskInfo:
           name: save-to-minio-7
       split-data:
@@ -2087,10 +2094,6 @@ root:
         defaultValue: 42.0
         isOptional: true
         parameterType: NUMBER_INTEGER
-      run_name:
-        defaultValue: ''
-        isOptional: true
-        parameterType: STRING
       test_size:
         defaultValue: 0.3
         isOptional: true

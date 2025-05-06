@@ -28,7 +28,7 @@ settings = {
     "top_p": 1,
     "frequency_penalty": 0,
     "presence_penalty": 0.6,
-    # "parallel_tool_calls": True,
+    "parallel_tool_calls": True,
     "tools": functions,
     "tool_choice": "auto",    
     # "functions": functions,
