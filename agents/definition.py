@@ -4,16 +4,16 @@ functions = [
         "type": "function",
         "function": {
             "name": "get_docs", 
-            "description": "Retrieve information about HumAIne EU-funded research solutions and Kubeflow pipelines.",
+            "description": "Retrieve information about HumAIne EU-funded research solutions and Kubeflow pipelines documentation from the knowledge base.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "query": {
                         "type": "string",
-                        "description": "Search query for retrieving information about HumAIne EU-funded research project such project objectives, vision, consortium, tasks, technologies, etc."
+                        "description": "Search query for retrieving information. This can include questions about HumAIne project (e.g., objectives, consortium, tasks), or documentation related to Kubeflow pipelines and their usage within the project."
                     },
                 },
-                "required": ["search_query"],
+                "required": ["query"],
                 "additionalProperties": False,
             },
         }
@@ -357,13 +357,9 @@ functions = [
                             "type": "string"
                         },
                         "description": "Optional list of specific metrics to compare (e.g. ['accuracy', 'precision'])"
-                    },
-                    "bucket_name": {
-                        "type": "string",
-                        "description": "Storage bucket name where metrics are stored (use list_user_buckets first if unsure)"
                     }
                 },
-                "required": ["pipeline_name", "run_ids", "bucket_name"],
+                "required": ["pipeline_name", "run_names"],
                 "additionalProperties": False
             }
         }

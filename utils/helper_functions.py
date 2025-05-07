@@ -331,6 +331,13 @@ class KFPClientManager:
         return self._create_kfp_client()
             
 def get_kubeflow_client() -> kfp.Client:
+    """
+    Gets the Kubeflow client with proper authentication.
+    """
+    # Suppress the specific KFP client warning about version compatibility
+    import warnings
+    warnings.filterwarnings("ignore", message="This client only works with Kubeflow Pipeline.*", category=FutureWarning)
+    
     kfp_client_manager = KFPClientManager(
         api_url=os.getenv("KUBEFLOW_HOST"),
         skip_tls_verify=True,
