@@ -31,8 +31,6 @@ settings = {
     "parallel_tool_calls": True,
     "tools": functions,
     "tool_choice": "auto",    
-    # "functions": functions,
-    # "function_call": "auto",
     "stream": True
 }
 

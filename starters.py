@@ -16,8 +16,8 @@ async def set_starters():
             icon="/public/s_data.png",
             ),
         cl.Starter(
-            label="Are there any ready-to-use Pipelines for my data?",
-            message="Are there any ready-to-use Pipelines for my data?",
+            label="Check out our ML Pipelines",
+            message="Check out our ready-to-use ML Pipelines",
             icon="/public/s_pipeline.png",
             ),
        

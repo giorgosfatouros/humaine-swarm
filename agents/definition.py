@@ -232,7 +232,7 @@ functions = [
         "type": "function",
         "function": {
             "name": "get_pipeline_artifacts_from_MinIO",
-            "description": "Retrieve actual ML pipeline artifacts (models, metrics, visualizations) stored in MinIO. Use for exploring pipeline outputs.",
+            "description": "Retrieve actual ML pipeline artifacts (models, metrics, visualizations) stored in MinIO. Use for exploring pipeline outputs or fetching a specific file.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -252,9 +252,13 @@ functions = [
                         "type": "integer",
                         "description": "Maximum number of items to return",
                         "default": 20
+                    },
+                    "object_path": {
+                        "type": "string",
+                        "description": "Optional direct MinIO object path to retrieve a specific file (overrides other parameters). Use after discovering paths with list_user_buckets or get_minio_info."
                     }
                 },
-                "required": ["pipeline_name"],
+                "required": [],
                 "additionalProperties": False
             }
         }
@@ -279,8 +283,17 @@ functions = [
                         "type": "string",
                         "description": "Optional model name to filter metrics (e.g. 'Support Vector Machine')"
                     },
+                    "max_items": {
+                        "type": "integer",
+                        "description": "Maximum number of items to return",
+                        "default": 20
+                    },
+                    "metrics_path": {
+                        "type": "string",
+                        "description": "Optional direct path to a specific metrics JSON file (overrides other parameters). Use after discovering paths with list_user_buckets or get_minio_info."
+                    }
                 },
-                "required": ["pipeline_name"],
+                "required": [],
                 "additionalProperties": False
             }
         }
@@ -309,8 +322,12 @@ functions = [
                         "type": "string",
                         "description": "Optional model name part to filter by (e.g. 'svm')"
                     },
+                    "visualization_path": {
+                        "type": "string",
+                        "description": "Optional direct path to a specific HTML visualization file (overrides other parameters). Use after discovering paths with list_user_buckets or get_minio_info."
+                    }
                 },
-                "required": ["pipeline_name", "run_id", "visualization_type"],
+                "required": [],
                 "additionalProperties": False
             }
         }
@@ -489,24 +506,6 @@ functions = [
                 "additionalProperties": False
             }
         }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "list_minio_buckets",
-            "description": "List all available MinIO buckets with minimal information, helpful when you need a bucket name for other functions",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "max_buckets": {
-                        "type": "integer",
-                        "description": "Maximum number of buckets to return",
-                        "default": 20
-                    }
-                },
-                "required": [],
-                "additionalProperties": False
-            }
-        }
     }
+    
 ]
