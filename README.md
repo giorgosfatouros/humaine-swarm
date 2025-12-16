@@ -85,8 +85,6 @@ The HumAIne Swarm Assistant can perform a wide range of tasks, including:
       humaine-swarm:latest
     ```
 
-For more detailed Docker deployment instructions, see [DOCKER.md](DOCKER.md).
-
 ## Usage
 
 Once the application is running, open your browser to the address provided by Chainlit (usually `http://localhost:8000`). You can then interact with the "HumAIne Swarm Assistant" through the chat interface.
