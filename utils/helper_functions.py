@@ -22,6 +22,23 @@ import asyncio
 
 
 def setup_logging(logger_name, level=logging.INFO):
+    # Check for LOG_LEVEL environment variable to override the default level
+    env_log_level = os.getenv('LOG_LEVEL', '').upper()
+    if env_log_level:
+        # Map string level names to logging constants
+        level_map = {
+            'DEBUG': logging.DEBUG,
+            'INFO': logging.INFO,
+            'WARNING': logging.WARNING,
+            'ERROR': logging.ERROR,
+            'CRITICAL': logging.CRITICAL
+        }
+        if env_log_level in level_map:
+            level = level_map[env_log_level]
+        else:
+            # If invalid level, use default and log a warning
+            logging.warning(f"Invalid LOG_LEVEL '{env_log_level}'. Using provided level {level}")
+    
     logger = logging.getLogger(logger_name)
     if not logger.handlers:  # Check if the logger already has handlers
         # Create a console handler and set the level
@@ -729,50 +746,51 @@ class KFPClientManager:
         """
         return self._create_kfp_client(namespace=namespace)
             
-def get_kubeflow_client(user_namespace: Optional[str] = None, user_token: Optional[str] = None) -> kfp.Client:
+def get_kubeflow_client(
+    user_namespace: Optional[str] = None, 
+    user_token: Optional[str] = None,
+    user_username: Optional[str] = None,
+    user_password: Optional[str] = None
+) -> kfp.Client:
     """
     Gets the Kubeflow client with proper authentication.
     
     Args:
         user_namespace: Optional user-specific namespace. If not provided, uses env var or default
         user_token: Optional OAuth token for the user. If provided, assumes SSO authentication
+        user_username: Optional username for authentication. If provided, uses this instead of env vars
+        user_password: Optional password for authentication. If provided, uses this instead of env vars
         
     Returns:
         Configured Kubeflow client instance
         
     Note: When Kubeflow is integrated with Keycloak SSO, the OAuth token should be used.
-        For now, falls back to username/password authentication if token not provided.
+        For now, uses username/password authentication. Credentials should be provided via
+        user_username/user_password parameters (from session) rather than environment variables.
     """
     # Suppress the specific KFP client warning about version compatibility
     import warnings
     warnings.filterwarnings("ignore", message="This client only works with Kubeflow Pipeline.*", category=FutureWarning)
     
-    # Determine which authentication method to use
-    # TODO: Once Kubeflow SSO is fully configured, switch to token-based auth
-    # For now, use username/password from env vars as fallback
-    
-    # Get credentials from environment as fallback
-    kubeflow_username = os.getenv("KUBEFLOW_USERNAME")
-    kubeflow_password = os.getenv("KUBEFLOW_PASSWORD")
+    # Use provided credentials if available, otherwise use empty strings (will fail gracefully)
+    kubeflow_username = user_username or ""
+    kubeflow_password = user_password or ""
     
     if not kubeflow_username or not kubeflow_password:
-        logger.warning("Kubeflow credentials not found in environment. Assuming SSO is configured.")
-        # When SSO is fully configured, we'll use the token directly
-        # For now, this will fail gracefully and can be handled by the caller
+        logger.warning("Kubeflow credentials not provided. Authentication may fail.")
     
     kfp_client_manager = KFPClientManager(
         api_url=os.getenv("KUBEFLOW_HOST"),
         skip_tls_verify=True,
-        dex_username=kubeflow_username or "",
-        dex_password=kubeflow_password or "",
+        dex_username=kubeflow_username,
+        dex_password=kubeflow_password,
         dex_auth_type="local",
     )
 
-    kfp_client = kfp_client_manager.create_kfp_client()
+    kfp_client = kfp_client_manager.create_kfp_client(namespace=user_namespace)
     
-    # Override namespace if user-specific namespace is provided
+    # Log namespace usage
     if user_namespace:
-        # The namespace is already set during client creation, but we log it
         logger.info(f"Using Kubeflow namespace: {user_namespace}")
     
     return kfp_client

@@ -1,0 +1,139 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Distribution / packaging
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.manifest
+*.spec
+
+# Testing and coverage
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+cover/
+test_data/
+
+# Documentation
+.docs/
+docs/_build/
+/site
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+.spyderproject
+.spyproject
+.ropeproject
+
+# Jupyter Notebook
+.ipynb_checkpoints
+notebooks/
+
+# Chainlit translations (if not needed in container)
+.chainlit/translations/
+
+# Logs
+*.log
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Local data and models
+downloaded_data/
+model_checkpoints/
+trained_model/
+test_data/
+
+# Temporary files
+transcript.py
+transcript_stt.py
+speech.mp3
+
+# Poetry (lock file should be included, but cache can be excluded)
+.pdm.toml
+.pdm-python
+.pdm-build/
+__pypackages__/
+
+# Type checking
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyre/
+.pytype/
+
+# Other
+celerybeat-schedule
+celerybeat.pid
+*.sage.py
+cython_debug/
+instance/
+.webassets-cache
+.scrapy
+.pybuilder/
+target/
+kubeflow/
+
+# Docker
+Dockerfile*
+.dockerignore
+docker-compose*.yml
+.docker/
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.travis.yml
+.circleci/
+
+# README and docs (optional - uncomment if you don't need them in container)
+# README.md
+# *.md
+# docs/
+
