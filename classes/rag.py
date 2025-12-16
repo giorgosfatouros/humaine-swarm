@@ -1,17 +1,13 @@
 import os
 from openai import AsyncOpenAI
-from pinecone.grpc import PineconeGRPC as Pinecone
+from pinecone import Pinecone
 from utils.helper_functions import setup_logging
 import logging
 from openai import OpenAI
 from typing import List
 from datetime import datetime
-from literalai import AsyncLiteralClient
 import tiktoken
 import asyncio
-
-lai = AsyncLiteralClient()
-lai.instrument_openai()
 
 logger = setup_logging('RAG', level=logging.ERROR)
 

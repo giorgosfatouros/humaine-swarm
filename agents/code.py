@@ -2,11 +2,10 @@ import os
 from datetime import datetime
 import json
 import chainlit as cl
-from literalai import AsyncLiteralClient
 from llama_index.vector_stores.pinecone import PineconeVectorStore
 from llama_index.core import VectorStoreIndex, StorageContext
 from llama_index.core.retrievers import VectorIndexRetriever
-from pinecone.grpc import PineconeGRPC as Pinecone
+from pinecone import Pinecone
 from llama_index.core import Settings
 from llama_index.llms.openai import AsyncOpenAI, OpenAI
 from llama_index.embeddings.openai import OpenAIEmbedding
@@ -20,20 +19,61 @@ from typing import Dict, List, Optional, Any
 from minio import Minio
 from minio.error import S3Error
 from utils.helper_functions import get_kubeflow_client
+from classes.user_handler import UserSessionManager
 
 # Set up the LLM
 Settings.llm  = OpenAI(model=LLM_MODEL, max_tokens=LLM_MAX_TOKENS, temperature=LLM_TEMPERATURE)
 Settings.embed_model = OpenAIEmbedding(model=EMBEDDING_MODEL)
 logger = setup_logging('TOOLS', level=logging.INFO)
 client = AsyncOpenAI()
-lai = AsyncLiteralClient()
-lai.instrument_openai()
 
 
 # Set up the vector store
 pc = Pinecone(api_key=PINECONE_API_KEY)
 vector_store = PineconeVectorStore(pinecone_index=pc.Index(PINECONE_INDEX))
 index = VectorStoreIndex.from_vector_store(vector_store=vector_store)
+
+
+# Helper functions to get user-specific clients
+async def get_user_minio_client() -> Minio:
+    """
+    Get a MinIO client configured with user-specific credentials from session.
+    Falls back to environment variables if user credentials not available.
+    """
+    try:
+        # Try to get and refresh credentials if needed
+        credentials = await UserSessionManager.get_or_refresh_minio_credentials()
+        if credentials:
+            logger.info("Using user-specific MinIO credentials")
+            return get_minio_client(user_credentials=credentials)
+        else:
+            logger.warning("User MinIO credentials not available, falling back to environment")
+            return get_minio_client()
+    except Exception as e:
+        logger.error(f"Error getting user MinIO client: {str(e)}")
+        # Fall back to environment credentials
+        return get_minio_client()
+
+
+def get_user_kubeflow_client() -> kfp.Client:
+    """
+    Get a Kubeflow client configured with user-specific namespace from session.
+    Falls back to environment variables if user namespace not available.
+    """
+    try:
+        namespace = UserSessionManager.get_kubeflow_namespace()
+        oauth_token = UserSessionManager.get_oauth_token()
+        
+        if namespace:
+            logger.info(f"Using user-specific Kubeflow namespace: {namespace}")
+            return get_kubeflow_client(user_namespace=namespace, user_token=oauth_token)
+        else:
+            logger.warning("User Kubeflow namespace not available, falling back to environment")
+            return get_kubeflow_client()
+    except Exception as e:
+        logger.error(f"Error getting user Kubeflow client: {str(e)}")
+        # Fall back to default client
+        return get_kubeflow_client()
 
 
 
@@ -99,11 +139,12 @@ async def get_docs(query: str):
 # MinIO functions
 
 @cl.step(type="tool", name="Bucket Info", show_input=False)
-async def get_minio_info(prefix: Optional[str] = None, max_items: int = 10) -> Dict:
+async def get_minio_info(bucket_name: Optional[str] = None, prefix: Optional[str] = None, max_items: int = 10) -> Dict:
     """
     Retrieve information about objects in a specific MinIO bucket.
     
     Args:
+        bucket_name: Name of the MinIO bucket to query
         prefix: Optional prefix to filter objects (like a folder path)
         max_items: Maximum number of items to return (default: 10)
         
@@ -111,8 +152,10 @@ async def get_minio_info(prefix: Optional[str] = None, max_items: int = 10) -> D
         Dict containing object information from the specified bucket
     """
     try:
-        client = get_minio_client()
-        bucket_name = os.getenv('MINIO_BUCKET')
+        client = await get_user_minio_client()
+        
+        if not bucket_name:
+            return {"error": "bucket_name parameter is required. Use list_user_buckets() to discover available buckets."}
         
         # Check if specified bucket exists
         if not client.bucket_exists(bucket_name):
@@ -167,7 +210,7 @@ async def list_user_buckets(max_buckets: int = 20) -> Dict:
         Dict containing information about available buckets
     """
     try:
-        client = get_minio_client()
+        client = await get_user_minio_client()
         
         # Get all buckets
         buckets = client.list_buckets()
@@ -255,6 +298,7 @@ async def list_user_buckets(max_buckets: int = 20) -> Dict:
 
 @cl.step(type="tool", name="Pipeline Artifacts", show_input=False)
 async def get_pipeline_artifacts(
+    bucket_name: Optional[str] = None,
     pipeline_name: Optional[str] = None,
     run_name: Optional[str] = None,
     artifact_type: Optional[str] = None,
@@ -265,6 +309,7 @@ async def get_pipeline_artifacts(
     Retrieve ML pipeline artifacts from MinIO storage.
     
     Args:
+        bucket_name: Name of the MinIO bucket to query
         pipeline_name: Name of the pipeline to query artifacts for (e.g. 'diabetes-svm-classification')
         run_name: Optional specific run name to filter artifacts
         artifact_type: Optional artifact type to filter (e.g. 'models', 'metrics', 'plots')
@@ -275,8 +320,10 @@ async def get_pipeline_artifacts(
         Dict containing artifact information
     """
     try:
-        client = get_minio_client()
-        bucket_name = os.getenv('MINIO_BUCKET')
+        client = await get_user_minio_client()
+        
+        if not bucket_name:
+            return {"error": "bucket_name parameter is required. Use list_user_buckets() to discover available buckets."}
         
         # Check if bucket exists
         if not client.bucket_exists(bucket_name):
@@ -419,6 +466,7 @@ async def get_pipeline_artifacts(
 
 @cl.step(type="tool", name="Model Metrics", show_input=False)
 async def get_model_metrics(
+    bucket_name: Optional[str] = None,
     pipeline_name: Optional[str] = None,
     run_name: Optional[str] = None,
     model_name: Optional[str] = None,
@@ -430,6 +478,7 @@ async def get_model_metrics(
     Retrieve model evaluation metrics from MinIO storage.
     
     Args:
+        bucket_name: Name of the MinIO bucket to query
         pipeline_name: Name of the pipeline (e.g. 'diabetes-svm-classification')
         run_name: Optional specific run name to get metrics for
         model_name: Optional model name to filter metrics (e.g. 'Support Vector Machine')
@@ -440,8 +489,10 @@ async def get_model_metrics(
         Dict containing model metrics
     """
     try:
-        client = get_minio_client()
-        bucket_name = os.getenv('MINIO_BUCKET')
+        client = await get_user_minio_client()
+        
+        if not bucket_name:
+            return {"error": "bucket_name parameter is required. Use list_user_buckets() to discover available buckets."}
         
         # Check if bucket exists
         if not client.bucket_exists(bucket_name):
@@ -561,6 +612,7 @@ async def get_model_metrics(
 
 @cl.step(type="tool", name="Get Pipeline Visualization", show_input=False)
 async def get_pipeline_visualization(
+    bucket_name: Optional[str] = None,
     pipeline_name: Optional[str] = None,
     run_name: Optional[str] = None,
     visualization_type: Optional[str] = None,
@@ -571,6 +623,7 @@ async def get_pipeline_visualization(
     Retrieve and return visualization artifacts (HTML plots) from pipeline runs.
     
     Args:
+        bucket_name: Name of the MinIO bucket to query
         pipeline_name: Name of the pipeline (e.g. 'diabetes-svm-classification')
         run_name: Run name to get visualizations for
         visualization_type: Type of visualization to retrieve ('confusion_matrix', 'roc_curve', 'feature_importance')
@@ -581,8 +634,10 @@ async def get_pipeline_visualization(
         Dict containing HTML visualization content that can be displayed in the chat
     """
     try:
-        client = get_minio_client()
-        bucket_name = os.getenv('MINIO_BUCKET')
+        client = await get_user_minio_client()
+        
+        if not bucket_name:
+            return {"error": "bucket_name parameter is required. Use list_user_buckets() to discover available buckets."}
         
         # Check if bucket exists
         if not client.bucket_exists(bucket_name):
@@ -698,14 +753,16 @@ async def get_pipeline_visualization(
 
 @cl.step(type="tool", name="Compare Pipeline Runs", show_input=False)
 async def compare_pipeline_runs(
-    pipeline_name: str,
-    run_names: List[str],
+    bucket_name: Optional[str] = None,
+    pipeline_name: Optional[str] = None,
+    run_names: Optional[List[str]] = None,
     metric_names: Optional[List[str]] = None,
 ) -> Dict:
     """
     Compare multiple pipeline runs based on their metrics.
     
     Args:
+        bucket_name: Name of the MinIO bucket to query
         pipeline_name: Name of the pipeline (e.g. 'diabetes-svm-classification')
         run_names: List of run names to compare
         metric_names: Optional list of specific metrics to compare (e.g. ['accuracy', 'precision'])
@@ -714,14 +771,19 @@ async def compare_pipeline_runs(
         Dict containing comparison results
     """
     try:
-        client = get_minio_client()
-        bucket_name = os.getenv('MINIO_BUCKET')
+        client = await get_user_minio_client()
+        
+        if not bucket_name:
+            return {"error": "bucket_name parameter is required. Use list_user_buckets() to discover available buckets."}
+        
+        if not pipeline_name:
+            return {"error": "pipeline_name parameter is required."}
+        
         # Check if bucket exists
-
         try:
             client.bucket_exists(bucket_name)
         except Exception as e:
-            return {"error": f"Bucket '{bucket_name}' does not exist use the list_user_buckets function to get a list of the user's buckets"}
+            return {"error": f"Bucket '{bucket_name}' does not exist. Use list_user_buckets() to get a list of the user's buckets."}
         
         if not run_names or len(run_names) < 1:
             return {"error": "At least one run name must be provided"}
@@ -870,9 +932,9 @@ async def get_kf_pipelines(
         Dict containing filtered pipeline information
     """
     try:
-        kf_client = get_kubeflow_client()
+        kf_client = get_user_kubeflow_client()
 
-        namespace = os.getenv('KUBEFLOW_NAMESPACE')
+        namespace = UserSessionManager.get_kubeflow_namespace() or os.getenv('KUBEFLOW_NAMESPACE')
         
         # Get pipelines without filter - we'll filter on the client side
         response = kf_client.list_pipelines(
@@ -931,7 +993,7 @@ async def get_pipeline_details(pipeline_id: str) -> Dict:
         if not pipeline_id or not pipeline_id.strip():
             return {"error": "Pipeline ID is required"}
             
-        kf_client = get_kubeflow_client()
+        kf_client = get_user_kubeflow_client()
         pipeline = kf_client.get_pipeline(pipeline_id=pipeline_id)
         
         # Extract the pipeline details
@@ -982,7 +1044,7 @@ async def get_pipeline_version_details(pipeline_id: str, pipeline_version_id: st
         if not pipeline_version_id or not pipeline_version_id.strip():
             return {"error": "Pipeline Version ID is required"}
             
-        kf_client = get_kubeflow_client()
+        kf_client = get_user_kubeflow_client()
         pipeline_version = kf_client.get_pipeline_version(
             pipeline_id=pipeline_id,
             pipeline_version_id=pipeline_version_id
@@ -1093,7 +1155,7 @@ async def run_pipeline(
             return {"error": "Either pipeline_id or pipeline_package_path must be specified"}
             
         # Get Kubeflow client
-        kf_client = get_kubeflow_client()
+        kf_client = get_user_kubeflow_client()
         
         # Prepare parameters
         if params is None:
@@ -1157,7 +1219,11 @@ async def list_runs(
         Dict containing filtered run information
     """
     try:
-        kf_client = get_kubeflow_client()
+        kf_client = get_user_kubeflow_client()
+        
+        # Use user's namespace if not explicitly provided
+        if not namespace:
+            namespace = UserSessionManager.get_kubeflow_namespace()
         
         # Get runs with API-level filtering
         filter_str = None
@@ -1233,7 +1299,7 @@ async def get_run_details(run_id: str) -> Dict:
         if not run_id or not run_id.strip():
             return {"error": "Run ID is required"}
             
-        kf_client = get_kubeflow_client()
+        kf_client = get_user_kubeflow_client()
         run = kf_client.get_run(run_id=run_id)
         
         # Extract the run details
@@ -1289,7 +1355,11 @@ async def list_experiments(
         Dict containing filtered experiment information
     """
     try:
-        kf_client = get_kubeflow_client()
+        kf_client = get_user_kubeflow_client()
+        
+        # Use user's namespace if not explicitly provided
+        if not namespace:
+            namespace = UserSessionManager.get_kubeflow_namespace()
         
         # Create filter if search term is provided
         filter_str = None
@@ -1366,7 +1436,11 @@ async def get_experiment_details(
         if not experiment_id and not experiment_name:
             return {"error": "Either experiment_id or experiment_name must be provided"}
             
-        kf_client = get_kubeflow_client()
+        kf_client = get_user_kubeflow_client()
+        
+        # Use user's namespace if not explicitly provided
+        if not namespace:
+            namespace = UserSessionManager.get_kubeflow_namespace()
         
         # Get experiment details
         experiment = kf_client.get_experiment(
@@ -1420,7 +1494,7 @@ async def get_user_namespace() -> Dict:
         Dict containing the Kubernetes namespace from the local context file or empty if it wasn't set
     """
     try:
-        kf_client = get_kubeflow_client()
+        kf_client = get_user_kubeflow_client()
         namespace = kf_client.get_user_namespace()
         
         return {
@@ -1453,7 +1527,11 @@ async def create_experiment(
         if not name or not name.strip():
             return {"error": "Experiment name is required"}
             
-        kf_client = get_kubeflow_client()
+        kf_client = get_user_kubeflow_client()
+        
+        # Use user's namespace if not explicitly provided
+        if not namespace:
+            namespace = UserSessionManager.get_kubeflow_namespace()
         experiment = kf_client.create_experiment(
             name=name,
             description=description,
@@ -1490,7 +1568,7 @@ async def get_pipeline_id(name: str) -> Dict:
         if not name or not name.strip():
             return {"error": "Pipeline name is required"}
             
-        kf_client = get_kubeflow_client()
+        kf_client = get_user_kubeflow_client()
         pipeline_id = kf_client.get_pipeline_id(name=name)
         
         if not pipeline_id:

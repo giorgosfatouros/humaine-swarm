@@ -59,6 +59,10 @@ functions = [
             "parameters": {
                 "type": "object",
                 "properties": {
+                    "bucket_name": {
+                        "type": "string",
+                        "description": "Name of the MinIO bucket to query. Use list_user_buckets() to discover available buckets."
+                    },
                     "prefix": {
                         "type": "string",
                         "description": "Optional prefix to filter objects (like a folder path)",
@@ -69,7 +73,7 @@ functions = [
                         "default": 10
                     }
                 },
-                "required": [],
+                "required": ["bucket_name"],
                 "additionalProperties": False,
             },
         }
@@ -236,6 +240,10 @@ functions = [
             "parameters": {
                 "type": "object",
                 "properties": {
+                    "bucket_name": {
+                        "type": "string",
+                        "description": "Name of the MinIO bucket to query. Use list_user_buckets() to discover available buckets."
+                    },
                     "pipeline_name": {
                         "type": "string",
                         "description": "Name of the pipeline to query artifacts for (e.g. 'diabetes-svm-classification')"
@@ -258,7 +266,7 @@ functions = [
                         "description": "Optional direct MinIO object path to retrieve a specific file (overrides other parameters). Use after discovering paths with list_user_buckets or get_minio_info."
                     }
                 },
-                "required": [],
+                "required": ["bucket_name"],
                 "additionalProperties": False
             }
         }
@@ -271,6 +279,10 @@ functions = [
             "parameters": {
                 "type": "object",
                 "properties": {
+                    "bucket_name": {
+                        "type": "string",
+                        "description": "Name of the MinIO bucket to query. Use list_user_buckets() to discover available buckets."
+                    },
                     "pipeline_name": {
                         "type": "string",
                         "description": "Name of the pipeline (e.g. 'diabetes-svm-classification')"
@@ -293,7 +305,7 @@ functions = [
                         "description": "Optional direct path to a specific metrics JSON file (overrides other parameters). Use after discovering paths with list_user_buckets or get_minio_info."
                     }
                 },
-                "required": [],
+                "required": ["bucket_name"],
                 "additionalProperties": False
             }
         }
@@ -306,6 +318,10 @@ functions = [
             "parameters": {
                 "type": "object",
                 "properties": {
+                    "bucket_name": {
+                        "type": "string",
+                        "description": "Name of the MinIO bucket to query. Use list_user_buckets() to discover available buckets."
+                    },
                     "pipeline_name": {
                         "type": "string",
                         "description": "Name of the pipeline (e.g. 'diabetes-svm-classification')"
@@ -327,7 +343,7 @@ functions = [
                         "description": "Optional direct path to a specific HTML visualization file (overrides other parameters). Use after discovering paths with list_user_buckets or get_minio_info."
                     }
                 },
-                "required": [],
+                "required": ["bucket_name"],
                 "additionalProperties": False
             }
         }
@@ -340,6 +356,10 @@ functions = [
             "parameters": {
                 "type": "object",
                 "properties": {
+                    "bucket_name": {
+                        "type": "string",
+                        "description": "Name of the MinIO bucket to query. Use list_user_buckets() to discover available buckets."
+                    },
                     "pipeline_name": {
                         "type": "string",
                         "description": "Name of the pipeline (e.g. 'diabetes-svm-classification')"
@@ -359,7 +379,7 @@ functions = [
                         "description": "Optional list of specific metrics to compare (e.g. ['accuracy', 'precision'])"
                     }
                 },
-                "required": ["pipeline_name", "run_names"],
+                "required": ["bucket_name", "pipeline_name", "run_names"],
                 "additionalProperties": False
             }
         }

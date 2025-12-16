@@ -1,5 +1,11 @@
 
 
+// Placeholder for modifyLoginScreen function (not currently used)
+function modifyLoginScreen() {
+  // This function can be implemented if you want to customize the login screen
+  console.log('Login screen modification placeholder');
+}
+
 function modifyChainlitWatermark() {
   let customWatermark = null;
 
@@ -137,7 +143,7 @@ function modifyChainlitWatermark() {
           divider3.style.opacity = '0.5';
 
           // Populate middle row
-          middleRow.appendChild(msLink);
+          middleRow.appendChild(companyLink);
           middleRow.appendChild(divider1);
           middleRow.appendChild(termsLink);
           middleRow.appendChild(divider3);

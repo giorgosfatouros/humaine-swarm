@@ -1,15 +1,18 @@
 from agents.definition import functions
 import os
 
-# Kubeflow connection settings
-KUBEFLOW_HOST = 'http://hua-kubeflow.ddns.net/'
-KUBEFLOW_USERNAME = "user@example.com"
-KUBEFLOW_PASSWORD = "2LZHseTdrLFFvx"
-KUBEFLOW_NAMESPACE = "kubeflow-user-example-com"
+# Kubeflow connection settings (base URL only - user credentials via OAuth)
+KUBEFLOW_HOST = os.environ.get("KUBEFLOW_HOST", "http://huanew-kubeflow.ddns.net/pipeline")
+
+# Legacy: Kept for backward compatibility during development
+# These should not be used in production - use OAuth instead
+# KUBEFLOW_USERNAME and KUBEFLOW_PASSWORD from env vars (optional fallback)
+# KUBEFLOW_NAMESPACE per-user from OAuth token
 
 # MinIO connection settings
-MINIO_ENDPOINT = "s3-minio.humaine-horizon.eu"
-MINIO_SECURE = True # os.environ.get("MINIO_SECURE", "False").lower() == "true"
+MINIO_ENDPOINT = os.environ.get("MINIO_ENDPOINT", "s3-minio.humaine-horizon.eu")
+MINIO_SECURE = os.environ.get("MINIO_SECURE", "true").lower() == "true"
+MINIO_API_ENDPOINT = os.environ.get("MINIO_API_ENDPOINT", None)
 
 # Pinecone settings
 PINECONE_API_KEY = os.environ["PINECONE_API_KEY"]

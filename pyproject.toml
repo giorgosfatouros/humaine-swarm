@@ -5,32 +5,34 @@ description = "Swarm Learning between human and AI models orchestrated by LLM ag
 authors = ["George Fatouros <gfatouros@innov-acts.com>"]
 license = "Apache License 2.0"
 readme = "README.md"
+package-mode = false
 
 
 [tool.poetry.dependencies]
 python = ">=3.11,<3.13"
-chainlit = "1.3.2"
-openai = "^1.51.2"
-swarm = {git = "https://github.com/openai/swarm.git"}
+chainlit = "^2.9.0"
+openai = "^1.54.0"
 langchain-community = "^0.3.2"
 tiktoken = "^0.8.0"
 kfp = "^2.11.0"
-pinecone = {extras = ["grpc"], version = "^5.3.1"}
-pinecone-plugin-assistant = "^0.3.0"
-pinecone-client = "^5.0.1"
-llama-index = "^0.12.3"
-llama-index-vector-stores-pinecone = "^0.4.1"
-llama-index-llms-openai = "^0.3.2"
+# NOTE: pinecone[grpc] requires protobuf <5.0, but chainlit >2.2.2 requires protobuf >=5.0
+# Using pinecone without grpc extra as a workaround - updated imports in code
+# from "from pinecone.grpc import PineconeGRPC" to "from pinecone import Pinecone"
+pinecone = "^7.0.0"
+#pinecone-plugin-assistant = "^3.0.1"
+llama-index = "^0.14.0"
+llama-index-vector-stores-pinecone = "^0.7.1"
+llama-index-llms-openai = "^0.5.0"
 langchain-openai = "^0.3.0"
 langchain-experimental = "^0.3.4"
 pypdf = "^5.1.0"
-pydantic = "2.10.1"
+pydantic = "^2.11.5"
 minio = "^7.2.15"
 boto3 = "^1.37.22"
-tensorflow = "^2.19.0"
-matplotlib = "^3.10.1"
-seaborn = "^0.13.2"
-scikit-learn = "^1.6.1"
+# tensorflow = "^2.19.0"
+# matplotlib = "^3.10.1"
+# seaborn = "^0.13.2"
+# scikit-learn = "^1.6.1"
 
 
 [tool.poetry.group.dev.dependencies]

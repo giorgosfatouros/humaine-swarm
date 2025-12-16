@@ -6,12 +6,9 @@ from classes.user_handler import UserSessionManager
 from starters import set_starters
 import json
 import logging
-from utils.starters import set_starters
 from agents.code import function_map, read_prompt
-from utils.helper_functions import setup_logging, decode_jwt, extract_token_from_headers, extract_user_from_payload
-from utils.api_functions import send_follow_up_questions
+from utils.helper_functions import setup_logging
 from utils.config import settings
-from literalai import AsyncLiteralClient
 from typing import Optional, Dict
 from chainlit.types import ThreadDict
 
@@ -20,8 +17,6 @@ logger = setup_logging('CHAT', level=logging.ERROR)
 logging.getLogger("httpx").setLevel("WARNING")
 
 client = AsyncOpenAI()
-lai = AsyncLiteralClient()
-lai.instrument_openai()
 
 system_prompt = read_prompt('system')
 
@@ -31,14 +26,31 @@ async def on_follow_up_question(action):
     await main(cl.Message(content=action.value))
     await action.remove()
 
-@cl.password_auth_callback
-async def auth_callback(username: str, password: str):
-    # Fetch the user matching username from your database
-    # and compare the hashed password with the value stored in the database
-    # if (username, password) == ("george", "admin"):
-    return cl.User(
-            identifier="gfatouros@innov-acts.com", metadata={"role": "admin", "email": "gfatouros@innov-acts.com", "provider": "credentials"}
-        )
+@cl.oauth_callback
+def oauth_callback(
+    provider_id: str,
+    token: str,
+    raw_user_data: Dict[str, str],
+    default_user: cl.User,
+) -> Optional[cl.User]:
+    """
+    Handle OAuth authentication callback from Keycloak.
+    Stores the OAuth token in user metadata for later use with MinIO and Kubeflow.
+    """
+    if provider_id == "keycloak":
+        # Store the OAuth token in user metadata for session use
+        if default_user.metadata is None:
+            default_user.metadata = {}
+        
+        default_user.metadata["oauth_token"] = token
+        default_user.metadata["provider"] = "keycloak"
+        default_user.metadata["raw_user_data"] = raw_user_data
+        
+        logger.info(f"Successfully authenticated user via Keycloak: {default_user.identifier}")
+        return default_user
+    
+    logger.warning(f"Unknown OAuth provider: {provider_id}")
+    return None
   
 
 # Chat initialization
@@ -54,6 +66,44 @@ async def start_chat():
     # Set the user ID in the session and in LiterAI
     UserSessionManager.set_user_id(user.identifier)
     # participant = await lai.api.get_or_create_user(identifier=user.identifier)
+    
+    # Store OAuth token if available
+    if user.metadata and "oauth_token" in user.metadata:
+        UserSessionManager.set_oauth_token(user.metadata["oauth_token"])
+        logger.info(f"Stored OAuth token for user {user.identifier}")
+        
+        # Fetch and store MinIO credentials using the OAuth token
+        try:
+            await UserSessionManager.fetch_and_store_minio_credentials()
+            logger.info(f"Successfully fetched MinIO credentials for user {user.identifier}")
+        except Exception as e:
+            error_msg = str(e)
+            logger.error(f"Failed to fetch MinIO credentials: {error_msg}")
+            
+            # Check if the error is due to expired OAuth token
+            if "expired" in error_msg.lower() or "token is expired" in error_msg.lower():
+                logger.warning("OAuth token expired on chat start - clearing session to force logout")
+                UserSessionManager.clear_session()
+                # Send a message to the user
+                await cl.Message(
+                    content="Your session has expired. Please refresh the page to log in again.",
+                    author="System"
+                ).send()
+                return  # Exit early to prevent further processing
+            # Continue without MinIO credentials - will fall back to env vars if available
+        
+        # Extract and store comprehensive token information
+        try:
+            # Extract namespace first (needed for Kubeflow)
+            UserSessionManager.extract_and_store_namespace()
+            logger.info(f"Extracted Kubeflow namespace for user {user.identifier}")
+            
+            # Extract and store all token info (policies, roles, metadata)
+            UserSessionManager.extract_and_store_token_info()
+            logger.info(f"Extracted comprehensive token info for user {user.identifier}")
+        except Exception as e:
+            logger.error(f"Failed to extract token information: {str(e)}")
+            # Continue with defaults
 
     # Print stored info for debugging
     logger.info(UserSessionManager.print_stored_info())
@@ -191,37 +241,8 @@ async def process_stream(stream, message_history, msg):
             # Reset tool call tracking for the next stream
             await process_stream(follow_up_stream, message_history, follow_up_msg)
 
-# @lai.step(name="Function Processor", type="tool")
-@cl.step(name="Agent Router", type="tool")
-async def process_function_call(function_call_data, message_history, msg):
-    # This function is kept for compatibility but won't be used in the concurrent processing flow
-    logger.info(f"Function call data: {function_call_data}")
-    try:
-        function_name = function_call_data["name"]
-        arguments = json.loads(function_call_data["arguments"])
-        
-        logger.debug(f"Function call data: {function_call_data}")
-        
-        if function_name not in function_map:
-            await msg.stream_token(f"Unknown function: {function_name}\n")
-            return
-
-        logger.info(f"Executing function: {function_name} with arguments: {arguments}")
-        
-        func = function_map[function_name]
-        result = await func(**arguments) if asyncio.iscoroutinefunction(func) else func(**arguments)
-
-        UserSessionManager.increment_function_call_count()
-
-        message_history.append({"role": "function", "name": function_name, "content": json.dumps(result)})
-        UserSessionManager.set_message_history(message_history)
-
-        await msg.send()
-
-    except Exception as e:
-        logger.error(f"Error in {function_name}: {str(e)}")
-        await msg.stream_token("We are currently experiencing high traffic. Please try again later.\n")
-        await msg.send()
+# Legacy function - no longer used (replaced by concurrent processing in process_stream)
+# Kept for reference but can be removed if not needed
 
 
 # Main function that handles user messages
@@ -235,38 +256,37 @@ async def main(message: cl.Message):
     # Create message but don't send it yet - this is key to avoiding empty messages
     msg = cl.Message(author="Swarm Agent", content="")
     
-    async with lai.run(name="Swarm Agent Response", thread_id=thread_id):
-        logger.info(f"New message from user {UserSessionManager.get_user_id()}")
+    logger.info(f"New message from user {UserSessionManager.get_user_id()}")
 
-        # Get the message history and append the new user message
-        message_history = UserSessionManager.get_message_history()
-        message_history.append({"role": "user", "content": message.content})
+    # Get the message history and append the new user message
+    message_history = UserSessionManager.get_message_history()
+    message_history.append({"role": "user", "content": message.content})
 
-        # Create the OpenAI chat completion with the message history
-        completion = await client.chat.completions.create(messages=cl.chat_context.to_openai(), **settings)
+    # Create the OpenAI chat completion with the message history
+    completion = await client.chat.completions.create(messages=cl.chat_context.to_openai(), **settings)
 
-        # Copy the message history for further use
-        temp_history = message_history.copy()
+    # Copy the message history for further use
+    temp_history = message_history.copy()
 
-        # Process the completion stream, attaching it to the current session and message
-        await process_stream(completion, message_history, msg)
-        if msg.content.strip():
-            message_history.append({"role": "assistant", "content": msg.content})
-            
-        # Send the message at the end if it has content or elements
-        has_elements = hasattr(msg, 'elements') and msg.elements and len(msg.elements) > 0
-        if msg.content.strip() or has_elements:
-            await msg.send()
-
-        # Save the updated message history in the session
-        UserSessionManager.set_message_history(message_history)
-
-        # Log message details for debugging
-        total_length = sum(len(json.dumps(msg)) for msg in message_history)
-        logger.info(f"Message finished with {UserSessionManager.get_function_call_count()} function calls and {len(message_history)} messages in history with total length of {total_length} characters")
-
-        # # Generate follow-up questions for the user
-        # follow_up_questions = await generate_follow_up_questions(message_history)
+    # Process the completion stream, attaching it to the current session and message
+    await process_stream(completion, message_history, msg)
+    if msg.content.strip():
+        message_history.append({"role": "assistant", "content": msg.content})
         
-        # # Send the follow-up questions to the UI
-        # await send_follow_up_questions(follow_up_questions)
+    # Send the message at the end if it has content or elements
+    has_elements = hasattr(msg, 'elements') and msg.elements and len(msg.elements) > 0
+    if msg.content.strip() or has_elements:
+        await msg.send()
+
+    # Save the updated message history in the session
+    UserSessionManager.set_message_history(message_history)
+
+    # Log message details for debugging
+    total_length = sum(len(json.dumps(msg)) for msg in message_history)
+    logger.info(f"Message finished with {UserSessionManager.get_function_call_count()} function calls and {len(message_history)} messages in history with total length of {total_length} characters")
+
+    # # Generate follow-up questions for the user
+    # follow_up_questions = await generate_follow_up_questions(message_history)
+    
+    # # Send the follow-up questions to the UI
+    # await send_follow_up_questions(follow_up_questions)

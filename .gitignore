@@ -2,10 +2,10 @@
 __pycache__/
 *.py[cod]
 *$py.class
-
+.chainlit/translations/
 # C extensions
 *.so
-
+.DS_Store
 # Distribution / packaging
 .Python
 build/
@@ -171,3 +171,7 @@ test_data/
 
 transcript.py
 speech.mp3
+.vscode/
+__pycache__/
+
+transcript_stt.py
