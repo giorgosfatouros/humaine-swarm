@@ -49,6 +49,8 @@ The HumAIne Swarm Assistant can perform a wide range of tasks, including:
 
 ## Getting Started
 
+### Local Development
+
 1.  **Environment Setup:**
     *   Copy `env.sh.example` to `env.sh`.
     *   Fill in the required environment variables in `env.sh` (OpenAI API key, Pinecone API key, MinIO credentials, Kubeflow details, etc.).
@@ -58,6 +60,32 @@ The HumAIne Swarm Assistant can perform a wide range of tasks, including:
     *   Run `poetry install` to install project dependencies.
 3.  **Run the Application:**
     *   Execute `chainlit run app.py -w` to start the Chainlit application.
+
+
+### Docker Deployment
+
+1.  **Build the Docker image:**
+    ```bash
+    docker build -t humaine-swarm:latest .
+    ```
+
+2.  **Create environment file:**
+    ```bash
+    # Copy and edit .env-example
+    cp .env-example .env
+    # Edit .env with your actual values
+    ```
+3.  **Run the container:**
+    ```bash
+    docker run -d \
+      --name humaine-swarm-assistant \
+      -p 8000:8000 \
+      --env-file .env \
+      --restart unless-stopped \
+      humaine-swarm:latest
+    ```
+
+For more detailed Docker deployment instructions, see [DOCKER.md](DOCKER.md).
 
 ## Usage
 
