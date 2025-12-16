@@ -175,3 +175,4 @@ speech.mp3
 __pycache__/
 
 transcript_stt.py
+notebooks/
