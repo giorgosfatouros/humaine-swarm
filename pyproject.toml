@@ -15,11 +15,7 @@ openai = "^1.54.0"
 langchain-community = "^0.3.2"
 tiktoken = "^0.8.0"
 kfp = "^2.11.0"
-# NOTE: pinecone[grpc] requires protobuf <5.0, but chainlit >2.2.2 requires protobuf >=5.0
-# Using pinecone without grpc extra as a workaround - updated imports in code
-# from "from pinecone.grpc import PineconeGRPC" to "from pinecone import Pinecone"
 pinecone = "^7.0.0"
-#pinecone-plugin-assistant = "^3.0.1"
 llama-index = "^0.14.0"
 llama-index-vector-stores-pinecone = "^0.7.1"
 llama-index-llms-openai = "^0.5.0"
