@@ -522,6 +522,114 @@ functions = [
                 "additionalProperties": False
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "parse_pdf_from_minio",
+            "description": "Download and parse text from a PDF file stored in MinIO. Extracts text content, chunks it for processing, and optionally provides summarization using LangChain.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "bucket_name": {
+                        "type": "string",
+                        "description": "Name of the MinIO bucket containing the PDF file. Use list_user_buckets() to discover available buckets."
+                    },
+                    "object_path": {
+                        "type": "string",
+                        "description": "Full path to the PDF file in MinIO (e.g. 'documents/report.pdf' or 'kubeflow/pipeline-name/run-name/document.pdf')"
+                    },
+                    "summarize": {
+                        "type": "boolean",
+                        "description": "Whether to generate a summary of the PDF content (default: false)",
+                        "default": False
+                    },
+                    "chunk_size": {
+                        "type": "integer",
+                        "description": "Character size for text chunks when splitting the document (default: 2000)",
+                        "default": 2000
+                    },
+                    "chunk_overlap": {
+                        "type": "integer",
+                        "description": "Number of characters to overlap between chunks (default: 200)",
+                        "default": 200
+                    },
+                    "summary_type": {
+                        "type": "string",
+                        "description": "Type of summarization chain to use: 'map_reduce' (for large documents), 'refine' (iterative refinement), or 'stuff' (for small documents). Default: 'map_reduce'",
+                        "enum": ["map_reduce", "refine", "stuff"],
+                        "default": "map_reduce"
+                    }
+                },
+                "required": ["bucket_name", "object_path"],
+                "additionalProperties": False
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "plot_data",
+            "description": "Create an interactive Plotly visualization from data. The agent should intelligently decide on the chart type (line, bar, pie, scatter) based on the data structure if chart_type is not specified. This tool automatically determines the best visualization type and creates an interactive chart that can be displayed in the chat interface.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "data": {
+                        "description": "The data to plot. Can be: a list of numbers (single series), a list of [x, y] pairs (as arrays of 2 numbers), a dict with keys as labels and values as numeric data, or a list of dicts (tabular data). For tabular data, use x_column and y_column to specify which columns to plot. The function will automatically detect the data structure and choose the appropriate chart type. Examples: [1, 2, 3, 4] for a simple series, [[1, 2], [3, 4], [5, 6]] for x-y pairs, {'A': 10, 'B': 20} for categorical data, or [{'x': 1, 'y': 2}, {'x': 3, 'y': 4}] for tabular data.",
+                        "oneOf": [
+                            {
+                                "type": "array",
+                                "items": {}
+                            },
+                            {"type": "object"}
+                        ]
+                    },
+                    "chart_type": {
+                        "type": "string",
+                        "enum": ["line", "bar", "pie", "scatter", "histogram"],
+                        "description": "Optional chart type. If not provided, will be automatically determined based on data structure. Use 'line' for time series or continuous data, 'bar' for categorical comparisons, 'pie' for proportions/percentages, 'scatter' for relationships between two variables, 'histogram' for distributions."
+                    },
+                    "title": {
+                        "type": "string",
+                        "description": "Optional title for the chart"
+                    },
+                    "x_label": {
+                        "type": "string",
+                        "description": "Optional label for x-axis"
+                    },
+                    "y_label": {
+                        "type": "string",
+                        "description": "Optional label for y-axis"
+                    },
+                    "x_column": {
+                        "type": "string",
+                        "description": "Optional column name for x-axis (required for tabular data - list of dicts)"
+                    },
+                    "y_column": {
+                        "type": "string",
+                        "description": "Optional column name for y-axis (required for tabular data - list of dicts)"
+                    },
+                    "color_column": {
+                        "type": "string",
+                        "description": "Optional column name for color grouping (for multi-series visualizations)"
+                    },
+                    "display": {
+                        "type": "string",
+                        "enum": ["inline", "side", "page"],
+                        "description": "How to display the chart in the UI. 'inline' shows it within the message, 'side' shows it in a sidebar, 'page' shows it on a separate page. Default: 'inline'",
+                        "default": "inline"
+                    },
+                    "size": {
+                        "type": "string",
+                        "enum": ["small", "medium", "large"],
+                        "description": "Size of the chart. Only works with display='inline'. Default: 'medium'",
+                        "default": "medium"
+                    }
+                },
+                "required": ["data"],
+                "additionalProperties": False
+            }
+        }
     }
     
 ]

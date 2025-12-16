@@ -1,6 +1,7 @@
 import os
 from datetime import datetime
 import json
+import asyncio
 import chainlit as cl
 from llama_index.vector_stores.pinecone import PineconeVectorStore
 from llama_index.core import VectorStoreIndex
@@ -18,6 +19,13 @@ from minio import Minio
 from minio.error import S3Error
 from utils.helper_functions import get_kubeflow_client
 from classes.user_handler import UserSessionManager
+from io import BytesIO
+import tempfile
+from langchain_community.document_loaders import PyPDFLoader
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain.chains.summarize import load_summarize_chain
+from langchain_openai import ChatOpenAI
+import plotly.graph_objects as go
 
 # Set up the LLM
 Settings.llm  = OpenAI(model=LLM_MODEL, max_tokens=LLM_MAX_TOKENS, temperature=LLM_TEMPERATURE)
@@ -404,7 +412,7 @@ async def get_minio_info(bucket_name: Optional[str] = None, prefix: Optional[str
         logger.error(f"Unexpected error retrieving MinIO information: {str(e)}")
         return {"error": str(e)}
 
-@cl.step(type="tool", name="List User Buckets", show_input=False)
+@cl.step(type="tool", name="List Buckets", show_input=False)
 async def list_user_buckets(max_buckets: int = 20) -> Dict:
     """
     List all MinIO buckets available to the user with basic statistics.
@@ -1793,6 +1801,408 @@ async def get_pipeline_id(name: str) -> Dict:
         logger.error(f"Error retrieving pipeline ID: {str(e)}")
         return {"error": str(e)}
 
+@cl.step(type="tool", name="PDF Parser", show_input=False)
+async def parse_pdf_from_minio(
+    bucket_name: str,
+    object_path: str,
+    summarize: bool = False,
+    chunk_size: int = 2000,
+    chunk_overlap: int = 200,
+    summary_type: str = "map_reduce"
+) -> Dict:
+    """
+    Download and parse text from a PDF file stored in MinIO.
+    Extracts text content, chunks it for processing, and optionally provides summarization.
+    
+    Args:
+        bucket_name: Name of the MinIO bucket containing the PDF file
+        object_path: Full path to the PDF file in MinIO
+        summarize: Whether to generate a summary of the PDF content
+        chunk_size: Character size for text chunks when splitting the document
+        chunk_overlap: Number of characters to overlap between chunks
+        summary_type: Type of summarization chain ('map_reduce', 'refine', or 'stuff')
+        
+    Returns:
+        Dict containing extracted text, chunks, optional summary, and metadata
+    """
+    try:
+        # Validate PDF file extension
+        if not object_path.lower().endswith('.pdf'):
+            return {"error": f"File '{object_path}' is not a PDF file. Only PDF files are supported."}
+        
+        # Get MinIO client
+        client = await get_user_minio_client()
+        
+        # Validate bucket exists
+        if not bucket_name:
+            return {"error": "bucket_name parameter is required. Use list_user_buckets() to discover available buckets."}
+        
+        if not client.bucket_exists(bucket_name):
+            return {"error": f"Bucket '{bucket_name}' does not exist. Use list_user_buckets() to get a list of available buckets."}
+        
+        # Download PDF from MinIO
+        try:
+            stat = client.stat_object(bucket_name, object_path)
+            response = client.get_object(bucket_name, object_path)
+            pdf_bytes = response.read()
+            response.close()
+            response.release_conn()
+        except S3Error as e:
+            if "NoSuchKey" in str(e):
+                return {"error": f"PDF file '{object_path}' not found in bucket '{bucket_name}'."}
+            else:
+                logger.error(f"Error downloading PDF from MinIO: {str(e)}")
+                return {"error": f"Error downloading PDF: {str(e)}"}
+        except Exception as e:
+            logger.error(f"Unexpected error downloading PDF: {str(e)}")
+            return {"error": f"Unexpected error downloading PDF: {str(e)}"}
+        
+        # Display PDF in the UI
+        try:
+            pdf_filename = object_path.split('/')[-1]
+            pdf_element = cl.Pdf(
+                name=pdf_filename,
+                display="side",
+                content=pdf_bytes,
+                page=1
+            )
+            # Send message with PDF element (name must be in content for side/page display)
+            await cl.Message(
+                content=f"Source PDF: {pdf_filename}",
+                elements=[pdf_element]
+            ).send()
+        except Exception as e:
+            logger.warning(f"Error displaying PDF element: {str(e)}")
+        
+        # Write PDF bytes to temporary file for PyPDFLoader
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as temp_file:
+            temp_file.write(pdf_bytes)
+            temp_file_path = temp_file.name
+        
+        try:
+            # Load PDF using PyPDFLoader
+            loader = PyPDFLoader(temp_file_path)
+            documents = loader.load()
+            
+            if not documents:
+                return {"error": "PDF file appears to be empty or could not be parsed."}
+            
+            # Extract full text
+            full_text = "\n\n".join([doc.page_content for doc in documents])
+            page_count = len(documents)
+            
+            # Chunk the text
+            text_splitter = RecursiveCharacterTextSplitter(
+                chunk_size=chunk_size,
+                chunk_overlap=chunk_overlap,
+                length_function=len
+            )
+            
+            chunks = text_splitter.split_documents(documents)
+            chunk_count = len(chunks)
+            
+            # Prepare result structure
+            result = {
+                "bucket": bucket_name,
+                "object_path": object_path,
+                "filename": object_path.split('/')[-1],
+                "file_size": stat.size,
+                "page_count": page_count,
+                "chunk_count": chunk_count,
+                "chunk_size": chunk_size,
+                "chunk_overlap": chunk_overlap,
+                "full_text": full_text,
+                "chunks": [{"chunk_index": i, "text": chunk.page_content, "page": chunk.metadata.get("page", None)} for i, chunk in enumerate(chunks)]
+            }
+            
+            # Optional summarization
+            if summarize:
+                try:
+                    # Initialize LLM for summarization
+                    # Fix for Pydantic 2.11+ compatibility - rebuild model before instantiation
+                    try:
+                        ChatOpenAI.model_rebuild()
+                    except Exception:
+                        # If rebuild fails, continue anyway - may work without it
+                        pass
+                    
+                    llm = ChatOpenAI(
+                        model=LLM_MODEL,
+                        temperature=LLM_TEMPERATURE,
+                        max_tokens=LLM_MAX_TOKENS
+                    )
+                    
+                    # Choose summarization chain based on summary_type
+                    if summary_type == "stuff":
+                        # Stuff chain - good for small documents
+                        chain = load_summarize_chain(llm, chain_type="stuff", verbose=False)
+                        summary = await asyncio.to_thread(chain.run, chunks)
+                    elif summary_type == "refine":
+                        # Refine chain - iteratively refines summary
+                        chain = load_summarize_chain(llm, chain_type="refine", verbose=False)
+                        summary = await asyncio.to_thread(chain.run, chunks)
+                    else:  # map_reduce (default)
+                        # Map-Reduce chain - summarizes each chunk then combines
+                        chain = load_summarize_chain(llm, chain_type="map_reduce", verbose=False)
+                        summary = await asyncio.to_thread(chain.run, chunks)
+                    
+                    result["summary"] = summary
+                    result["summary_type"] = summary_type
+                except Exception as e:
+                    logger.error(f"Error generating summary: {str(e)}")
+                    result["summary_error"] = f"Failed to generate summary: {str(e)}"
+                    result["summary"] = None
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error parsing PDF: {str(e)}")
+            return {"error": f"Error parsing PDF file: {str(e)}. The file may be corrupted or in an unsupported format."}
+        finally:
+            # Clean up temporary file
+            try:
+                os.unlink(temp_file_path)
+            except Exception as e:
+                logger.warning(f"Error deleting temporary file: {str(e)}")
+                
+    except Exception as e:
+        logger.error(f"Unexpected error in parse_pdf_from_minio: {str(e)}")
+        return {"error": f"Unexpected error: {str(e)}"}
+
+@cl.step(type="tool", name="Plot Data", show_input=False)
+async def plot_data(
+    data: Any,
+    chart_type: Optional[str] = None,
+    title: Optional[str] = None,
+    x_label: Optional[str] = None,
+    y_label: Optional[str] = None,
+    x_column: Optional[str] = None,
+    y_column: Optional[str] = None,
+    color_column: Optional[str] = None,
+    display: str = "inline",
+    size: str = "medium"
+) -> Dict:
+    """
+    Create an interactive Plotly visualization from data. The agent should intelligently 
+    decide on the chart type (line, bar, pie, scatter) based on the data structure if 
+    chart_type is not specified.
+    
+    Args:
+        data: The data to plot. Can be:
+            - A list of numbers (single series)
+            - A list of lists (multiple series)
+            - A dict with keys as labels and values as data
+            - A list of dicts (tabular data)
+        chart_type: Optional chart type ('line', 'bar', 'pie', 'scatter', 'histogram').
+                    If not provided, will be automatically determined.
+        title: Optional title for the chart
+        x_label: Optional label for x-axis
+        y_label: Optional label for y-axis
+        x_column: Optional column name for x-axis (for dict/list of dicts data)
+        y_column: Optional column name for y-axis (for dict/list of dicts data)
+        color_column: Optional column name for color grouping (for dict/list of dicts data)
+        display: How to display the chart ('inline', 'side', or 'page'). Default: 'inline'
+        size: Size of the chart ('small', 'medium', or 'large'). Default: 'medium'
+        
+    Returns:
+        Dict containing the Plotly figure as JSON and metadata
+    """
+    try:
+        # Determine chart type if not provided
+        if not chart_type:
+            chart_type = _determine_chart_type(data, x_column, y_column)
+            logger.info(f"Auto-determined chart type: {chart_type}")
+        
+        # Create the appropriate Plotly figure
+        fig = _create_plotly_figure(
+            data, chart_type, title, x_label, y_label, 
+            x_column, y_column, color_column
+        )
+        
+        # Convert figure to JSON for serialization
+        fig_json = fig.to_json()
+        
+        return {
+            "figure_json": fig_json,
+            "chart_type": chart_type,
+            "title": title or "Data Visualization",
+            "display": display,
+            "size": size,
+            "success": True
+        }
+        
+    except Exception as e:
+        logger.error(f"Error creating plot: {str(e)}")
+        return {"error": f"Error creating plot: {str(e)}", "success": False}
+
+
+def _determine_chart_type(data: Any, x_column: Optional[str] = None, y_column: Optional[str] = None) -> str:
+    """
+    Intelligently determine the best chart type based on data structure.
+    """
+    # If data is a list of numbers
+    if isinstance(data, list) and len(data) > 0:
+        if all(isinstance(x, (int, float)) for x in data):
+            # Single series of numbers - use line chart
+            return "line"
+        elif all(isinstance(x, list) and len(x) == 2 for x in data):
+            # List of [x, y] pairs - use scatter
+            return "scatter"
+        elif all(isinstance(x, dict) for x in data):
+            # List of dicts - check structure
+            if x_column and y_column:
+                # Has explicit x and y columns
+                y_values = [d.get(y_column) for d in data if y_column in d]
+                if all(isinstance(v, (int, float)) for v in y_values):
+                    # Check if x is categorical
+                    x_values = [d.get(x_column) for d in data if x_column in d]
+                    if len(set(x_values)) < len(x_values) * 0.5:
+                        # Many repeated x values - use bar chart
+                        return "bar"
+                    else:
+                        return "line"
+            # Try to infer
+            if len(data) > 0:
+                keys = list(data[0].keys())
+                if len(keys) == 2:
+                    # Two columns - likely x and y
+                    return "scatter"
+                elif len(keys) > 2:
+                    # Multiple columns - default to line
+                    return "line"
+    
+    # If data is a dict
+    elif isinstance(data, dict):
+        values = list(data.values())
+        if all(isinstance(v, (int, float)) for v in values):
+            # Dict with numeric values
+            if len(data) <= 10:
+                # Small number of categories - use pie or bar
+                return "pie"
+            else:
+                return "bar"
+        elif all(isinstance(v, list) for v in values):
+            # Dict with lists as values - multiple series
+            return "line"
+    
+    # Default to line chart
+    return "line"
+
+
+def _create_plotly_figure(
+    data: Any,
+    chart_type: str,
+    title: Optional[str] = None,
+    x_label: Optional[str] = None,
+    y_label: Optional[str] = None,
+    x_column: Optional[str] = None,
+    y_column: Optional[str] = None,
+    color_column: Optional[str] = None
+) -> go.Figure:
+    """
+    Create a Plotly figure based on the chart type and data.
+    """
+    title = title or "Data Visualization"
+    
+    # Handle different data types
+    if isinstance(data, list) and len(data) > 0:
+        # List of numbers
+        if all(isinstance(x, (int, float)) for x in data):
+            if chart_type == "line":
+                fig = go.Figure(data=go.Scatter(y=data, mode='lines+markers'))
+            elif chart_type == "bar":
+                fig = go.Figure(data=go.Bar(y=data))
+            elif chart_type == "pie":
+                fig = go.Figure(data=go.Pie(values=data, labels=[f"Item {i+1}" for i in range(len(data))]))
+            else:
+                fig = go.Figure(data=go.Scatter(y=data, mode='lines+markers'))
+        
+        # List of [x, y] pairs
+        elif all(isinstance(x, list) and len(x) == 2 for x in data):
+            x_vals = [item[0] for item in data]
+            y_vals = [item[1] for item in data]
+            if chart_type == "scatter":
+                fig = go.Figure(data=go.Scatter(x=x_vals, y=y_vals, mode='markers'))
+            elif chart_type == "line":
+                fig = go.Figure(data=go.Scatter(x=x_vals, y=y_vals, mode='lines+markers'))
+            else:
+                fig = go.Figure(data=go.Scatter(x=x_vals, y=y_vals, mode='lines+markers'))
+        
+        # List of dicts (tabular data)
+        elif all(isinstance(x, dict) for x in data):
+            if x_column and y_column:
+                x_vals = [d.get(x_column) for d in data]
+                y_vals = [d.get(y_column) for d in data]
+                
+                if chart_type == "bar":
+                    fig = go.Figure(data=go.Bar(x=x_vals, y=y_vals))
+                elif chart_type == "scatter":
+                    fig = go.Figure(data=go.Scatter(x=x_vals, y=y_vals, mode='markers'))
+                elif chart_type == "line":
+                    fig = go.Figure(data=go.Scatter(x=x_vals, y=y_vals, mode='lines+markers'))
+                elif chart_type == "pie":
+                    fig = go.Figure(data=go.Pie(labels=x_vals, values=y_vals))
+                else:
+                    fig = go.Figure(data=go.Scatter(x=x_vals, y=y_vals, mode='lines+markers'))
+            else:
+                # Try to infer columns from first dict
+                if len(data) > 0:
+                    keys = list(data[0].keys())
+                    if len(keys) >= 2:
+                        x_col = keys[0]
+                        y_col = keys[1]
+                        x_vals = [d.get(x_col) for d in data]
+                        y_vals = [d.get(y_col) for d in data]
+                        if chart_type == "bar":
+                            fig = go.Figure(data=go.Bar(x=x_vals, y=y_vals))
+                        elif chart_type == "pie":
+                            fig = go.Figure(data=go.Pie(labels=x_vals, values=y_vals))
+                        else:
+                            fig = go.Figure(data=go.Scatter(x=x_vals, y=y_vals, mode='lines+markers'))
+                    else:
+                        # Single column - use index as x
+                        y_col = keys[0]
+                        y_vals = [d.get(y_col) for d in data]
+                        if chart_type == "bar":
+                            fig = go.Figure(data=go.Bar(y=y_vals))
+                        elif chart_type == "pie":
+                            fig = go.Figure(data=go.Pie(values=y_vals, labels=[f"Item {i+1}" for i in range(len(y_vals))]))
+                        else:
+                            fig = go.Figure(data=go.Scatter(y=y_vals, mode='lines+markers'))
+                else:
+                    raise ValueError("Empty data list")
+        else:
+            raise ValueError(f"Unsupported data format: {type(data[0])}")
+    
+    # Dict data
+    elif isinstance(data, dict):
+        labels = list(data.keys())
+        values = list(data.values())
+        
+        if chart_type == "pie":
+            fig = go.Figure(data=go.Pie(labels=labels, values=values))
+        elif chart_type == "bar":
+            fig = go.Figure(data=go.Bar(x=labels, y=values))
+        elif chart_type == "line":
+            fig = go.Figure(data=go.Scatter(x=labels, y=values, mode='lines+markers'))
+        else:
+            # Default to bar for dict data
+            fig = go.Figure(data=go.Bar(x=labels, y=values))
+    
+    else:
+        raise ValueError(f"Unsupported data type: {type(data)}")
+    
+    # Update layout
+    fig.update_layout(
+        title=title,
+        xaxis_title=x_label or "",
+        yaxis_title=y_label or "",
+        template="plotly_white",
+        hovermode='closest'
+    )
+    
+    return fig
+
 function_map = {
     "get_docs": get_docs,
     "get_minio_info": get_minio_info,
@@ -1811,5 +2221,7 @@ function_map = {
     "get_experiment_details": get_experiment_details,
     "get_user_kubeflow_namespace": get_user_namespace,
     "create_experiment": create_experiment,
-    "get_pipeline_id": get_pipeline_id
+    "get_pipeline_id": get_pipeline_id,
+    "parse_pdf_from_minio": parse_pdf_from_minio,
+    "plot_data": plot_data
 }

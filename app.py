@@ -11,6 +11,8 @@ from utils.helper_functions import setup_logging
 from utils.config import settings
 from typing import Optional, Dict
 from chainlit.types import ThreadDict
+import plotly.graph_objects as go
+import plotly.io as pio
 
 # Setup logging
 logger = setup_logging('CHAT', level=logging.ERROR)
@@ -181,6 +183,32 @@ async def process_stream(stream, message_history, msg):
                     # Initialize elements if they don't exist yet
                     if not hasattr(msg, 'elements') or msg.elements is None:
                         msg.elements = []
+                    
+                    # Handle plot_data tool results
+                    if function_name == "plot_data" and isinstance(result, dict):
+                        if result.get("success") and "figure_json" in result:
+                            try:
+                                # Parse the JSON figure back to a Plotly figure object
+                                figure_json = result["figure_json"]
+                                fig = pio.from_json(figure_json)
+                                
+                                # Get display and size settings
+                                display = result.get("display", "inline")
+                                size = result.get("size", "medium")
+                                chart_type = result.get("chart_type", "chart")
+                                title = result.get("title", "Data Visualization")
+                                
+                                # Create Plotly element
+                                plotly_element = cl.Plotly(
+                                    name=f"{chart_type}_{title}",
+                                    figure=fig,
+                                    display=display,
+                                    size=size
+                                )
+                                msg.elements.append(plotly_element)
+                                logger.info(f"Added Plotly chart: {chart_type} - {title}")
+                            except Exception as plot_error:
+                                logger.error(f"Error creating Plotly element: {str(plot_error)}")
                         
                     # if function_name == "get_stock_prices":
                     #     figure_data = await get_prices_figure(result)
