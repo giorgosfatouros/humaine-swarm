@@ -157,6 +157,8 @@ dmypy.json
 
 # pytype static type analyzer
 .pytype/
+kubeflow_artifacts/
+kubeflow_artifacts/*
 
 # Cython debug symbols
 cython_debug/
