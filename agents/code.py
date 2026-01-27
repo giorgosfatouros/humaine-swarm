@@ -26,6 +26,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain.chains.summarize import load_summarize_chain
 from langchain_openai import ChatOpenAI
 import plotly.graph_objects as go
+import pandas as pd
 
 # Set up the LLM
 Settings.llm  = OpenAI(model=LLM_MODEL, max_tokens=LLM_MAX_TOKENS, temperature=LLM_TEMPERATURE)
@@ -490,6 +491,14 @@ async def list_user_buckets(max_buckets: int = 20) -> Dict:
                 # Add kubeflow pipeline names if found
                 if kubeflow_dirs:
                     bucket_info["kubeflow_pipelines"] = list(set(kubeflow_dirs))
+                
+                # Add pickle file paths for Smart Cities pilot data analysis
+                pickle_files = [obj.object_name for obj in sample_objects if obj.object_name.endswith('.pkl') or obj.object_name.endswith('.pickle')]
+                if pickle_files:
+                    bucket_info["pickle_files"] = pickle_files[:10]  # Limit to 10 for readability
+                    if len(pickle_files) > 10:
+                        bucket_info["pickle_files_truncated"] = True
+                        bucket_info["total_pickle_files"] = len(pickle_files)
                 
                 bucket_data.append(bucket_info)
                 
@@ -2203,6 +2212,427 @@ def _create_plotly_figure(
     
     return fig
 
+
+# Smart Cities Pilot Analysis Tool
+SMART_CITIES_ALLOWED_USERS = ["cities-pilot@humaine.com"]
+
+@cl.step(type="tool", name="Smart Cities Analysis", show_input=False)
+async def analyze_smart_cities_data(
+    bucket_name: str,
+    object_path: str,
+    query_type: str,
+    filter_value: Optional[str] = None
+) -> Dict:
+    """
+    Analyze Smart Cities pilot application data from pickle files stored in MinIO.
+    Provides predefined analysis functions for error types, AI decisions, operator decisions,
+    and processing performance metrics.
+    
+    Args:
+        bucket_name: Name of the MinIO bucket containing the pickle file
+        object_path: Full path to the pickle file in MinIO
+        query_type: Type of analysis to perform. Options:
+            - 'overview': Dataset summary (row count, column groups, value distributions)
+            - 'error_distribution': Count of applications by error type
+            - 'ai_decisions': Distribution of AI decisions (Accepted/Rejected/Flagged)
+            - 'operator_decisions': Distribution of operator review outcomes
+            - 'processing_time': AI and operator processing time statistics
+            - 'field_errors': Which fields have most discrepancies between GT_ and APP_
+            - 'decision_flow': Flow from AI decision to final operator outcome
+        filter_value: Optional filter value for specific queries
+        
+    Returns:
+        Dict containing analysis results based on the query_type
+    """
+    try:
+        # Check user access
+        user_email = UserSessionManager.get_user_id()
+        if user_email not in SMART_CITIES_ALLOWED_USERS:
+            logger.warning(f"Access denied for user {user_email} to Smart Cities tool")
+            return {
+                "error": "Access denied. This tool is only available to Smart Cities pilot users.",
+                "allowed_users": SMART_CITIES_ALLOWED_USERS
+            }
+        
+        # Validate pickle file extension
+        if not object_path.lower().endswith('.pkl') and not object_path.lower().endswith('.pickle'):
+            return {"error": f"File '{object_path}' is not a pickle file. Only .pkl or .pickle files are supported."}
+        
+        # Validate query_type
+        valid_query_types = [
+            'overview', 'error_distribution', 'ai_decisions', 
+            'operator_decisions', 'processing_time', 'field_errors', 'decision_flow'
+        ]
+        if query_type not in valid_query_types:
+            return {"error": f"Invalid query_type '{query_type}'. Valid options: {valid_query_types}"}
+        
+        # Get MinIO client
+        client = await get_user_minio_client()
+        
+        # Validate bucket exists
+        if not bucket_name:
+            return {"error": "bucket_name parameter is required. Use list_user_buckets() to discover available buckets."}
+        
+        if not client.bucket_exists(bucket_name):
+            return {"error": f"Bucket '{bucket_name}' does not exist. Use list_user_buckets() to get a list of available buckets."}
+        
+        # Download pickle from MinIO
+        try:
+            stat = client.stat_object(bucket_name, object_path)
+            response = client.get_object(bucket_name, object_path)
+            pickle_bytes = response.read()
+            response.close()
+            response.release_conn()
+        except S3Error as e:
+            if "NoSuchKey" in str(e):
+                return {"error": f"Pickle file '{object_path}' not found in bucket '{bucket_name}'."}
+            else:
+                logger.error(f"Error downloading pickle from MinIO: {str(e)}")
+                return {"error": f"Error downloading pickle: {str(e)}"}
+        
+        # Write to temporary file and load with pandas
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.pkl') as temp_file:
+            temp_file.write(pickle_bytes)
+            temp_file_path = temp_file.name
+        
+        try:
+            # Load the dataframe
+            df = pd.read_pickle(temp_file_path)
+            
+            if not isinstance(df, pd.DataFrame):
+                return {"error": "The pickle file does not contain a pandas DataFrame."}
+            
+            # Identify column groups
+            gt_cols = [c for c in df.columns if c.startswith('GT_')]
+            app_cols = [c for c in df.columns if c.startswith('APP_')]
+            ai_cols = [c for c in df.columns if c.startswith('AI_')]
+            op_cols = [c for c in df.columns if c.startswith('OP_')]
+            other_cols = [c for c in df.columns if not any(c.startswith(p) for p in ['GT_', 'APP_', 'AI_', 'OP_'])]
+            
+            # Execute the requested query
+            if query_type == 'overview':
+                result = _smart_cities_overview(df, gt_cols, app_cols, ai_cols, op_cols, other_cols)
+            elif query_type == 'error_distribution':
+                result = _smart_cities_error_distribution(df)
+            elif query_type == 'ai_decisions':
+                result = _smart_cities_ai_decisions(df, ai_cols)
+            elif query_type == 'operator_decisions':
+                result = _smart_cities_operator_decisions(df, op_cols)
+            elif query_type == 'processing_time':
+                result = _smart_cities_processing_time(df, ai_cols, op_cols)
+            elif query_type == 'field_errors':
+                result = _smart_cities_field_errors(df, gt_cols, app_cols)
+            elif query_type == 'decision_flow':
+                result = _smart_cities_decision_flow(df, ai_cols, op_cols)
+            else:
+                result = {"error": f"Query type '{query_type}' not implemented"}
+            
+            # Add metadata to result
+            result["bucket"] = bucket_name
+            result["object_path"] = object_path
+            result["query_type"] = query_type
+            result["total_records"] = len(df)
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error analyzing pickle data: {str(e)}")
+            return {"error": f"Error analyzing data: {str(e)}"}
+        finally:
+            # Clean up temporary file
+            try:
+                os.unlink(temp_file_path)
+            except Exception as e:
+                logger.warning(f"Error deleting temporary file: {str(e)}")
+                
+    except Exception as e:
+        logger.error(f"Unexpected error in analyze_smart_cities_data: {str(e)}")
+        return {"error": f"Unexpected error: {str(e)}"}
+
+
+def _smart_cities_overview(df: pd.DataFrame, gt_cols: List, app_cols: List, ai_cols: List, op_cols: List, other_cols: List) -> Dict:
+    """Generate overview statistics for the Smart Cities dataset."""
+    result = {
+        "row_count": len(df),
+        "column_count": len(df.columns),
+        "column_groups": {
+            "ground_truth_GT": {"count": len(gt_cols), "columns": gt_cols},
+            "application_APP": {"count": len(app_cols), "columns": app_cols},
+            "ai_processing_AI": {"count": len(ai_cols), "columns": ai_cols},
+            "operator_OP": {"count": len(op_cols), "columns": op_cols},
+            "other": {"count": len(other_cols), "columns": other_cols}
+        }
+    }
+    
+    # Add error type distribution if available
+    if 'error_type' in df.columns:
+        result["error_type_distribution"] = df['error_type'].value_counts().to_dict()
+    
+    # Add AI decision distribution if available
+    ai_decision_col = next((c for c in df.columns if 'decision' in c.lower() and c.startswith('AI_')), None)
+    if ai_decision_col:
+        result["ai_decision_distribution"] = df[ai_decision_col].value_counts().to_dict()
+    
+    # Add operator decision distribution if available
+    op_decision_col = next((c for c in df.columns if 'decision' in c.lower() and c.startswith('OP_')), None)
+    if op_decision_col:
+        result["operator_decision_distribution"] = df[op_decision_col].value_counts().to_dict()
+    
+    return result
+
+
+def _smart_cities_error_distribution(df: pd.DataFrame) -> Dict:
+    """Analyze error type distribution in applications."""
+    result = {"analysis": "error_distribution"}
+    
+    # Look for error_type column (case-insensitive)
+    error_col = next((c for c in df.columns if 'error_type' in c.lower()), None)
+    
+    if error_col:
+        distribution = df[error_col].value_counts().to_dict()
+        total = len(df)
+        
+        result["distribution"] = distribution
+        result["percentages"] = {k: round(v / total * 100, 2) for k, v in distribution.items()}
+        result["total_applications"] = total
+        
+        # Categorize by error severity
+        no_errors = sum(v for k, v in distribution.items() if 'none' in str(k).lower() or 'no error' in str(k).lower())
+        obvious_errors = sum(v for k, v in distribution.items() if 'obvious' in str(k).lower())
+        actual_errors = sum(v for k, v in distribution.items() if 'actual' in str(k).lower() or 'real' in str(k).lower())
+        other_errors = total - no_errors - obvious_errors - actual_errors
+        
+        result["summary"] = {
+            "no_errors": no_errors,
+            "obvious_errors": obvious_errors,
+            "actual_errors": actual_errors,
+            "other": other_errors
+        }
+    else:
+        result["error"] = "No error_type column found in the dataset"
+        result["available_columns"] = list(df.columns)
+    
+    return result
+
+
+def _smart_cities_ai_decisions(df: pd.DataFrame, ai_cols: List) -> Dict:
+    """Analyze AI decision distribution."""
+    result = {"analysis": "ai_decisions"}
+    
+    # Look for AI decision column
+    decision_col = next((c for c in ai_cols if 'decision' in c.lower()), None)
+    
+    if decision_col:
+        distribution = df[decision_col].value_counts().to_dict()
+        total = len(df)
+        
+        result["column_used"] = decision_col
+        result["distribution"] = distribution
+        result["percentages"] = {k: round(v / total * 100, 2) for k, v in distribution.items()}
+        
+        # Categorize decisions
+        accepted = sum(v for k, v in distribution.items() if 'accept' in str(k).lower())
+        rejected = sum(v for k, v in distribution.items() if 'reject' in str(k).lower())
+        flagged = sum(v for k, v in distribution.items() if 'flag' in str(k).lower() or 'verif' in str(k).lower())
+        
+        result["summary"] = {
+            "accepted": accepted,
+            "rejected": rejected,
+            "flagged_for_verification": flagged,
+            "acceptance_rate": round(accepted / total * 100, 2) if total > 0 else 0
+        }
+        
+        # Add confidence statistics if available
+        confidence_col = next((c for c in ai_cols if 'confidence' in c.lower()), None)
+        if confidence_col and pd.api.types.is_numeric_dtype(df[confidence_col]):
+            result["confidence_stats"] = {
+                "mean": round(df[confidence_col].mean(), 4),
+                "median": round(df[confidence_col].median(), 4),
+                "min": round(df[confidence_col].min(), 4),
+                "max": round(df[confidence_col].max(), 4)
+            }
+    else:
+        result["error"] = "No AI decision column found"
+        result["available_ai_columns"] = ai_cols
+    
+    return result
+
+
+def _smart_cities_operator_decisions(df: pd.DataFrame, op_cols: List) -> Dict:
+    """Analyze operator decision distribution."""
+    result = {"analysis": "operator_decisions"}
+    
+    # Look for operator decision column
+    decision_col = next((c for c in op_cols if 'decision' in c.lower()), None)
+    
+    if decision_col:
+        distribution = df[decision_col].value_counts().to_dict()
+        total = len(df)
+        
+        result["column_used"] = decision_col
+        result["distribution"] = distribution
+        result["percentages"] = {k: round(v / total * 100, 2) for k, v in distribution.items()}
+        
+        # Categorize decisions
+        accepted = sum(v for k, v in distribution.items() if 'accept' in str(k).lower() and 'fix' not in str(k).lower() and 'verif' not in str(k).lower())
+        rejected = sum(v for k, v in distribution.items() if 'reject' in str(k).lower())
+        fixed_accepted = sum(v for k, v in distribution.items() if 'fix' in str(k).lower())
+        verified_accepted = sum(v for k, v in distribution.items() if 'verif' in str(k).lower())
+        
+        result["summary"] = {
+            "directly_accepted": accepted,
+            "rejected": rejected,
+            "fixed_and_accepted": fixed_accepted,
+            "accepted_after_verification": verified_accepted,
+            "final_acceptance_rate": round((accepted + fixed_accepted + verified_accepted) / total * 100, 2) if total > 0 else 0
+        }
+    else:
+        result["error"] = "No operator decision column found"
+        result["available_op_columns"] = op_cols
+    
+    return result
+
+
+def _smart_cities_processing_time(df: pd.DataFrame, ai_cols: List, op_cols: List) -> Dict:
+    """Analyze processing time statistics."""
+    result = {"analysis": "processing_time"}
+    
+    # Look for processing time columns
+    ai_time_col = next((c for c in ai_cols if 'time' in c.lower() or 'duration' in c.lower() or 'processing' in c.lower()), None)
+    op_time_col = next((c for c in op_cols if 'time' in c.lower() or 'duration' in c.lower() or 'processing' in c.lower()), None)
+    
+    if ai_time_col and pd.api.types.is_numeric_dtype(df[ai_time_col]):
+        result["ai_processing"] = {
+            "column": ai_time_col,
+            "mean": round(df[ai_time_col].mean(), 4),
+            "median": round(df[ai_time_col].median(), 4),
+            "std": round(df[ai_time_col].std(), 4),
+            "min": round(df[ai_time_col].min(), 4),
+            "max": round(df[ai_time_col].max(), 4),
+            "total": round(df[ai_time_col].sum(), 4)
+        }
+    else:
+        result["ai_processing"] = {"error": "No AI processing time column found or column is not numeric"}
+    
+    if op_time_col and pd.api.types.is_numeric_dtype(df[op_time_col]):
+        result["operator_processing"] = {
+            "column": op_time_col,
+            "mean": round(df[op_time_col].mean(), 4),
+            "median": round(df[op_time_col].median(), 4),
+            "std": round(df[op_time_col].std(), 4),
+            "min": round(df[op_time_col].min(), 4),
+            "max": round(df[op_time_col].max(), 4),
+            "total": round(df[op_time_col].sum(), 4)
+        }
+    else:
+        result["operator_processing"] = {"error": "No operator processing time column found or column is not numeric"}
+    
+    # Calculate efficiency comparison if both are available
+    if "error" not in result.get("ai_processing", {}) and "error" not in result.get("operator_processing", {}):
+        ai_mean = result["ai_processing"]["mean"]
+        op_mean = result["operator_processing"]["mean"]
+        result["comparison"] = {
+            "ai_vs_operator_ratio": round(ai_mean / op_mean, 4) if op_mean > 0 else None,
+            "faster_by": "AI" if ai_mean < op_mean else "Operator",
+            "time_difference": round(abs(ai_mean - op_mean), 4)
+        }
+    
+    return result
+
+
+def _smart_cities_field_errors(df: pd.DataFrame, gt_cols: List, app_cols: List) -> Dict:
+    """Analyze which fields have most discrepancies between ground truth and application data."""
+    result = {"analysis": "field_errors"}
+    
+    # Match GT_ columns with APP_ columns
+    field_errors = {}
+    matched_fields = []
+    
+    for gt_col in gt_cols:
+        # Extract field name (remove GT_ prefix)
+        field_name = gt_col[3:]  # Remove 'GT_'
+        app_col = f"APP_{field_name}"
+        
+        if app_col in app_cols:
+            matched_fields.append(field_name)
+            # Count mismatches
+            mismatches = (df[gt_col] != df[app_col]).sum()
+            total = len(df)
+            field_errors[field_name] = {
+                "mismatches": int(mismatches),
+                "total": total,
+                "error_rate": round(mismatches / total * 100, 2) if total > 0 else 0
+            }
+    
+    if field_errors:
+        # Sort by error rate
+        sorted_fields = sorted(field_errors.items(), key=lambda x: x[1]['error_rate'], reverse=True)
+        
+        result["field_error_rates"] = dict(sorted_fields)
+        result["most_error_prone_field"] = sorted_fields[0][0] if sorted_fields else None
+        result["least_error_prone_field"] = sorted_fields[-1][0] if sorted_fields else None
+        result["matched_fields_count"] = len(matched_fields)
+        result["average_error_rate"] = round(sum(f['error_rate'] for f in field_errors.values()) / len(field_errors), 2)
+    else:
+        result["error"] = "Could not match GT_ columns with APP_ columns"
+        result["gt_columns"] = gt_cols
+        result["app_columns"] = app_cols
+    
+    return result
+
+
+def _smart_cities_decision_flow(df: pd.DataFrame, ai_cols: List, op_cols: List) -> Dict:
+    """Analyze the flow from AI decision to final operator outcome."""
+    result = {"analysis": "decision_flow"}
+    
+    # Find decision columns
+    ai_decision_col = next((c for c in ai_cols if 'decision' in c.lower()), None)
+    op_decision_col = next((c for c in op_cols if 'decision' in c.lower()), None)
+    
+    if ai_decision_col and op_decision_col:
+        # Create cross-tabulation
+        crosstab = pd.crosstab(df[ai_decision_col], df[op_decision_col])
+        
+        result["ai_column"] = ai_decision_col
+        result["operator_column"] = op_decision_col
+        result["flow_matrix"] = crosstab.to_dict()
+        
+        # Calculate flow statistics
+        flows = []
+        for ai_dec in crosstab.index:
+            for op_dec in crosstab.columns:
+                count = crosstab.loc[ai_dec, op_dec]
+                if count > 0:
+                    flows.append({
+                        "from_ai": str(ai_dec),
+                        "to_operator": str(op_dec),
+                        "count": int(count),
+                        "percentage": round(count / len(df) * 100, 2)
+                    })
+        
+        # Sort by count
+        flows.sort(key=lambda x: x['count'], reverse=True)
+        result["flow_details"] = flows
+        
+        # Calculate agreement rate (AI decision matches operator decision concept)
+        # This is a simplified check - you may need to adjust based on actual decision values
+        agreement_count = 0
+        for _, row in df.iterrows():
+            ai_dec = str(row[ai_decision_col]).lower()
+            op_dec = str(row[op_decision_col]).lower()
+            # Check if both accepted or both rejected
+            if ('accept' in ai_dec and 'accept' in op_dec) or ('reject' in ai_dec and 'reject' in op_dec):
+                agreement_count += 1
+        
+        result["ai_operator_agreement_rate"] = round(agreement_count / len(df) * 100, 2) if len(df) > 0 else 0
+    else:
+        result["error"] = "Could not find both AI and operator decision columns"
+        result["ai_columns"] = ai_cols
+        result["op_columns"] = op_cols
+    
+    return result
+
+
 function_map = {
     "get_docs": get_docs,
     "get_minio_info": get_minio_info,
@@ -2223,5 +2653,6 @@ function_map = {
     "create_experiment": create_experiment,
     "get_pipeline_id": get_pipeline_id,
     "parse_pdf_from_minio": parse_pdf_from_minio,
-    "plot_data": plot_data
+    "plot_data": plot_data,
+    "analyze_smart_cities_data": analyze_smart_cities_data
 }

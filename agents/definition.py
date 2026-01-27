@@ -388,7 +388,7 @@ functions = [
         "type": "function",
         "function": {
             "name": "list_user_buckets",
-            "description": "List all available storage buckets with information about what data, ML pipelines and artifacts they contain",
+            "description": "List all available storage buckets with information about what data, ML pipelines and artifacts they contain. Returns pickle_files array with exact file paths for any .pkl files found - use these exact paths when calling analyze_smart_cities_data.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -630,6 +630,36 @@ functions = [
                 "additionalProperties": False
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "analyze_smart_cities_data",
+            "description": "Analyze Smart Cities pilot application data from pickle files stored in MinIO. Provides insights on error types, AI decisions, operator decisions, and processing performance. This tool is only available to authorized Smart Cities pilot users. IMPORTANT: Before using this tool, you MUST first call get_minio_info() with the bucket name and NO prefix to list all files and get the EXACT object_path. Do NOT guess file paths - always verify the exact path from get_minio_info() results first.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "bucket_name": {
+                        "type": "string",
+                        "description": "Name of the MinIO bucket containing the pickle file. Use list_user_buckets() to discover available buckets."
+                    },
+                    "object_path": {
+                        "type": "string",
+                        "description": "Full path to the pickle file in MinIO (e.g., 'pilot-data/sim-pilot-apps-v0.pkl')"
+                    },
+                    "query_type": {
+                        "type": "string",
+                        "enum": ["overview", "error_distribution", "ai_decisions", "operator_decisions", "processing_time", "field_errors", "decision_flow"],
+                        "description": "Type of analysis to perform: 'overview' for dataset summary, 'error_distribution' for error type counts, 'ai_decisions' for AI decision distribution (Accepted/Rejected/Flagged), 'operator_decisions' for operator review outcomes, 'processing_time' for time statistics, 'field_errors' for GT vs APP field discrepancies, 'decision_flow' for AI to operator decision flow"
+                    },
+                    "filter_value": {
+                        "type": "string",
+                        "description": "Optional filter value for specific queries"
+                    }
+                },
+                "required": ["bucket_name", "object_path", "query_type"],
+                "additionalProperties": False
+            }
+        }
     }
-    
 ]
