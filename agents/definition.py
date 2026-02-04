@@ -314,7 +314,7 @@ functions = [
         "type": "function",
         "function": {
             "name": "get_pipeline_visualization",
-            "description": "Retrieve visual model results (confusion matrices, ROC curves, feature importance) as HTML content for display",
+            "description": "Retrieve PRE-EXISTING visual model results (confusion matrices, ROC curves, feature importance) as HTML content from MinIO storage. These are visualizations that were generated during Kubeflow ML pipeline execution. NOTE: This fetches existing files from ML pipeline runs - to CREATE new visualizations from any data, use plot_data instead.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -388,7 +388,7 @@ functions = [
         "type": "function",
         "function": {
             "name": "list_user_buckets",
-            "description": "List all available storage buckets with information about what data, ML pipelines and artifacts they contain. Returns pickle_files array with exact file paths for any .pkl files found - use these exact paths when calling analyze_smart_cities_data.",
+            "description": "List all available storage buckets with information about what data, ML pipelines and artifacts they contain. Returns data_files dict organized by type (pickle, json, pdf) with EXACT file paths - USE THESE EXACT PATHS when calling other tools like analyze_smart_cities_data or compare_smart_cities_files. Do not modify or guess file paths.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -570,7 +570,7 @@ functions = [
         "type": "function",
         "function": {
             "name": "plot_data",
-            "description": "Create an interactive Plotly visualization from data. The agent should intelligently decide on the chart type (line, bar, pie, scatter) based on the data structure if chart_type is not specified. This tool automatically determines the best visualization type and creates an interactive chart that can be displayed in the chat interface.",
+            "description": "Create an interactive Plotly visualization from ANY data. This is a generic tool for all users and pilots - use it to visualize analysis results, metrics, comparisons, confusion matrices, decision distributions, or any structured data. The agent should intelligently decide on the chart type (line, bar, pie, scatter) based on the data structure if chart_type is not specified. NOTE: This creates NEW charts from data you provide. For fetching pre-existing ML pipeline visualizations stored in MinIO, use get_pipeline_visualization instead.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -635,7 +635,7 @@ functions = [
         "type": "function",
         "function": {
             "name": "analyze_smart_cities_data",
-            "description": "Analyze Smart Cities pilot application data from pickle files stored in MinIO. Provides insights on error types, AI decisions, operator decisions, and processing performance. This tool is only available to authorized Smart Cities pilot users. IMPORTANT: Before using this tool, you MUST first call get_minio_info() with the bucket name and NO prefix to list all files and get the EXACT object_path. Do NOT guess file paths - always verify the exact path from get_minio_info() results first.",
+            "description": "Analyze Smart Cities pilot application data from pickle files stored in MinIO. Provides insights on error types, AI decisions, operator decisions, and processing performance. This tool is only available to authorized Smart Cities pilot users. If file path is incorrect, returns available_files with correct paths organized by type. IMPORTANT: Use EXACT paths from list_user_buckets() data_files - do not guess or modify paths.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -649,8 +649,8 @@ functions = [
                     },
                     "query_type": {
                         "type": "string",
-                        "enum": ["overview", "error_distribution", "ai_decisions", "operator_decisions", "processing_time", "field_errors", "decision_flow"],
-                        "description": "Type of analysis to perform: 'overview' for dataset summary, 'error_distribution' for error type counts, 'ai_decisions' for AI decision distribution (Accepted/Rejected/Flagged), 'operator_decisions' for operator review outcomes, 'processing_time' for time statistics, 'field_errors' for GT vs APP field discrepancies, 'decision_flow' for AI to operator decision flow"
+                        "enum": ["overview", "error_distribution", "ai_decisions", "operator_decisions", "processing_time", "field_errors", "decision_flow", "confusion_matrix", "ai_accuracy_metrics"],
+                        "description": "Type of analysis to perform: 'overview' for dataset summary, 'error_distribution' for error type counts, 'ai_decisions' for AI decision distribution (Accepted/Rejected/Flagged), 'operator_decisions' for operator review outcomes, 'processing_time' for time statistics per application, 'field_errors' for GT vs APP field discrepancies, 'decision_flow' for AI to operator decision flow, 'confusion_matrix' for AI decision accuracy matrix (TP/FP/TN/FN based on GT vs APP comparison), 'ai_accuracy_metrics' for detailed accuracy metrics with field breakdown"
                     },
                     "filter_value": {
                         "type": "string",
@@ -658,6 +658,36 @@ functions = [
                     }
                 },
                 "required": ["bucket_name", "object_path", "query_type"],
+                "additionalProperties": False
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "compare_smart_cities_files",
+            "description": "Compare Smart Cities pilot data across multiple pickle files. Use this tool to compare decisions, processing times, and operator interventions across different data files. Returns aggregated statistics normalized by row count. Only available to Smart Cities pilot users.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "bucket_name": {
+                        "type": "string",
+                        "description": "Name of the MinIO bucket containing the pickle files. Use list_user_buckets() to discover available buckets."
+                    },
+                    "object_paths": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "description": "List of paths to pickle files in MinIO to compare (e.g., ['pilot-data/sim-pilot-apps-v0.pkl', 'pilot-data/sim-pilot-apps-v1.pkl'])"
+                    },
+                    "comparison_type": {
+                        "type": "string",
+                        "enum": ["decisions", "processing_time", "full_summary"],
+                        "description": "Type of comparison: 'decisions' to compare AI and operator decision distributions, 'processing_time' to compare AI and operator processing times per application, 'full_summary' for complete comparison including a summary table with all metrics normalized by total rows"
+                    }
+                },
+                "required": ["bucket_name", "object_paths"],
                 "additionalProperties": False
             }
         }

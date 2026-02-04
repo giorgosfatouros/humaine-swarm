@@ -492,13 +492,22 @@ async def list_user_buckets(max_buckets: int = 20) -> Dict:
                 if kubeflow_dirs:
                     bucket_info["kubeflow_pipelines"] = list(set(kubeflow_dirs))
                 
-                # Add pickle file paths for Smart Cities pilot data analysis
-                pickle_files = [obj.object_name for obj in sample_objects if obj.object_name.endswith('.pkl') or obj.object_name.endswith('.pickle')]
-                if pickle_files:
-                    bucket_info["pickle_files"] = pickle_files[:10]  # Limit to 10 for readability
-                    if len(pickle_files) > 10:
-                        bucket_info["pickle_files_truncated"] = True
-                        bucket_info["total_pickle_files"] = len(pickle_files)
+                # Add data_files organized by type for analysis tools
+                data_files = {
+                    "pickle": [obj.object_name for obj in sample_objects if obj.object_name.lower().endswith(('.pkl', '.pickle'))],
+                    "json": [obj.object_name for obj in sample_objects if obj.object_name.lower().endswith('.json')],
+                    "pdf": [obj.object_name for obj in sample_objects if obj.object_name.lower().endswith('.pdf')]
+                }
+                # Only include non-empty types, limit to 10 per type for readability
+                filtered_data_files = {}
+                for file_type, files in data_files.items():
+                    if files:
+                        filtered_data_files[file_type] = files[:10]
+                        if len(files) > 10:
+                            filtered_data_files[f"{file_type}_truncated"] = True
+                            filtered_data_files[f"total_{file_type}_files"] = len(files)
+                if filtered_data_files:
+                    bucket_info["data_files"] = filtered_data_files
                 
                 bucket_data.append(bucket_info)
                 
@@ -2214,7 +2223,75 @@ def _create_plotly_figure(
 
 
 # Smart Cities Pilot Analysis Tool
-SMART_CITIES_ALLOWED_USERS = ["cities-pilot@humaine.com"]
+
+# Broadened patterns for detecting time-related columns
+TIME_PATTERNS = ['time', 'duration', 'processing', 'elapsed', 'seconds', 'ms', 'latency', 'response']
+
+# Pilot access configuration - maps email patterns to pilots
+PILOT_CONFIG = {
+    "smart_cities": {
+        "allowed_emails": ["cities-pilot@humaine.com"],
+        "email_patterns": ["@cities", "smart-cities", "cities-pilot"],
+        "default_bucket": "smart-cities-data"
+    },
+    # Future pilots can be added here
+    # "healthcare": {
+    #     "allowed_emails": ["health-pilot@humaine.com"],
+    #     "email_patterns": ["@health", "healthcare"],
+    #     "default_bucket": "healthcare-data"
+    # }
+}
+
+
+def _get_user_pilot_context() -> Dict:
+    """
+    Get the pilot context for current user based on their email/identity.
+    Uses UserSessionManager to retrieve user information and matches against PILOT_CONFIG.
+    
+    Returns:
+        Dict containing:
+        - pilot: Name of the matched pilot (or None)
+        - default_bucket: Default bucket for the pilot (or None)
+        - has_access: Boolean indicating if user has pilot access
+        - user_email: The user's email address
+    """
+    user_email = UserSessionManager.get_user_id() or ""
+    user_policies = UserSessionManager.get_user_policies() or []
+    
+    for pilot_name, config in PILOT_CONFIG.items():
+        # Check explicit email match
+        if user_email in config["allowed_emails"]:
+            return {
+                "pilot": pilot_name,
+                "default_bucket": config["default_bucket"],
+                "has_access": True,
+                "user_email": user_email
+            }
+        # Check email pattern match
+        for pattern in config.get("email_patterns", []):
+            if pattern.lower() in user_email.lower():
+                return {
+                    "pilot": pilot_name,
+                    "default_bucket": config["default_bucket"],
+                    "has_access": True,
+                    "user_email": user_email
+                }
+        # Check policy-based access (MinIO policies may indicate pilot access)
+        for policy in user_policies:
+            if pilot_name.replace("_", "-") in policy.lower():
+                return {
+                    "pilot": pilot_name,
+                    "default_bucket": config["default_bucket"],
+                    "has_access": True,
+                    "user_email": user_email
+                }
+    
+    return {
+        "pilot": None,
+        "default_bucket": None,
+        "has_access": False,
+        "user_email": user_email
+    }
 
 @cl.step(type="tool", name="Smart Cities Analysis", show_input=False)
 async def analyze_smart_cities_data(
@@ -2245,13 +2322,14 @@ async def analyze_smart_cities_data(
         Dict containing analysis results based on the query_type
     """
     try:
-        # Check user access
-        user_email = UserSessionManager.get_user_id()
-        if user_email not in SMART_CITIES_ALLOWED_USERS:
-            logger.warning(f"Access denied for user {user_email} to Smart Cities tool")
+        # Check user access using dynamic pilot context
+        pilot_context = _get_user_pilot_context()
+        if pilot_context["pilot"] != "smart_cities" or not pilot_context["has_access"]:
+            logger.warning(f"Access denied for user {pilot_context['user_email']} to Smart Cities tool")
             return {
                 "error": "Access denied. This tool is only available to Smart Cities pilot users.",
-                "allowed_users": SMART_CITIES_ALLOWED_USERS
+                "user_email": pilot_context["user_email"],
+                "detected_pilot": pilot_context["pilot"]
             }
         
         # Validate pickle file extension
@@ -2261,7 +2339,8 @@ async def analyze_smart_cities_data(
         # Validate query_type
         valid_query_types = [
             'overview', 'error_distribution', 'ai_decisions', 
-            'operator_decisions', 'processing_time', 'field_errors', 'decision_flow'
+            'operator_decisions', 'processing_time', 'field_errors', 'decision_flow',
+            'confusion_matrix', 'ai_accuracy_metrics'
         ]
         if query_type not in valid_query_types:
             return {"error": f"Invalid query_type '{query_type}'. Valid options: {valid_query_types}"}
@@ -2285,7 +2364,14 @@ async def analyze_smart_cities_data(
             response.release_conn()
         except S3Error as e:
             if "NoSuchKey" in str(e):
-                return {"error": f"Pickle file '{object_path}' not found in bucket '{bucket_name}'."}
+                # Auto-discover available files to help user
+                discovered = _discover_files(client, bucket_name)
+                return {
+                    "error": f"File '{object_path}' not found in bucket '{bucket_name}'.",
+                    "available_files": discovered if discovered else {},
+                    "suggestion": f"Use one of these exact paths: {discovered.get('pickle', [])}" if discovered.get('pickle') else "No pickle files found in bucket",
+                    "help": "Use list_user_buckets() to find available buckets and their data_files"
+                }
             else:
                 logger.error(f"Error downloading pickle from MinIO: {str(e)}")
                 return {"error": f"Error downloading pickle: {str(e)}"}
@@ -2324,6 +2410,10 @@ async def analyze_smart_cities_data(
                 result = _smart_cities_field_errors(df, gt_cols, app_cols)
             elif query_type == 'decision_flow':
                 result = _smart_cities_decision_flow(df, ai_cols, op_cols)
+            elif query_type == 'confusion_matrix':
+                result = _smart_cities_confusion_matrix(df, gt_cols, app_cols, ai_cols)
+            elif query_type == 'ai_accuracy_metrics':
+                result = _smart_cities_accuracy_metrics(df, gt_cols, app_cols, ai_cols)
             else:
                 result = {"error": f"Query type '{query_type}' not implemented"}
             
@@ -2332,6 +2422,10 @@ async def analyze_smart_cities_data(
             result["object_path"] = object_path
             result["query_type"] = query_type
             result["total_records"] = len(df)
+            result["user_context"] = {
+                "pilot": pilot_context["pilot"],
+                "default_bucket": pilot_context["default_bucket"]
+            }
             
             return result
             
@@ -2494,48 +2588,85 @@ def _smart_cities_operator_decisions(df: pd.DataFrame, op_cols: List) -> Dict:
 
 
 def _smart_cities_processing_time(df: pd.DataFrame, ai_cols: List, op_cols: List) -> Dict:
-    """Analyze processing time statistics."""
+    """Analyze processing time statistics with per-application averages."""
     result = {"analysis": "processing_time"}
     
-    # Look for processing time columns
-    ai_time_col = next((c for c in ai_cols if 'time' in c.lower() or 'duration' in c.lower() or 'processing' in c.lower()), None)
-    op_time_col = next((c for c in op_cols if 'time' in c.lower() or 'duration' in c.lower() or 'processing' in c.lower()), None)
+    total_applications = len(df)
+    result["total_applications"] = total_applications
+    
+    # Use exact column names for processing time analysis
+    ai_time_col = 'AI_PROCESSING_TIME' if 'AI_PROCESSING_TIME' in ai_cols else None
+    op_time_col = 'OP_PROCESSING_TIME' if 'OP_PROCESSING_TIME' in op_cols else None
     
     if ai_time_col and pd.api.types.is_numeric_dtype(df[ai_time_col]):
+        # Drop NaN values for accurate calculations
+        ai_times = df[ai_time_col].dropna()
+        valid_count = len(ai_times)
+        
         result["ai_processing"] = {
             "column": ai_time_col,
-            "mean": round(df[ai_time_col].mean(), 4),
-            "median": round(df[ai_time_col].median(), 4),
-            "std": round(df[ai_time_col].std(), 4),
-            "min": round(df[ai_time_col].min(), 4),
-            "max": round(df[ai_time_col].max(), 4),
-            "total": round(df[ai_time_col].sum(), 4)
+            "average_per_application": round(ai_times.mean(), 4) if valid_count > 0 else None,
+            "median_per_application": round(ai_times.median(), 4) if valid_count > 0 else None,
+            "std_deviation": round(ai_times.std(), 4) if valid_count > 0 else None,
+            "min_time": round(ai_times.min(), 4) if valid_count > 0 else None,
+            "max_time": round(ai_times.max(), 4) if valid_count > 0 else None,
+            "total_time": round(ai_times.sum(), 4) if valid_count > 0 else None,
+            "applications_with_data": valid_count,
+            "applications_missing_data": total_applications - valid_count
         }
     else:
-        result["ai_processing"] = {"error": "No AI processing time column found or column is not numeric"}
+        result["ai_processing"] = {
+            "error": "No AI processing time column found or column is not numeric",
+            "available_ai_columns": ai_cols,
+            "searched_patterns": TIME_PATTERNS
+        }
     
     if op_time_col and pd.api.types.is_numeric_dtype(df[op_time_col]):
+        # Drop NaN values for accurate calculations
+        op_times = df[op_time_col].dropna()
+        valid_count = len(op_times)
+        
         result["operator_processing"] = {
             "column": op_time_col,
-            "mean": round(df[op_time_col].mean(), 4),
-            "median": round(df[op_time_col].median(), 4),
-            "std": round(df[op_time_col].std(), 4),
-            "min": round(df[op_time_col].min(), 4),
-            "max": round(df[op_time_col].max(), 4),
-            "total": round(df[op_time_col].sum(), 4)
+            "average_per_application": round(op_times.mean(), 4) if valid_count > 0 else None,
+            "median_per_application": round(op_times.median(), 4) if valid_count > 0 else None,
+            "std_deviation": round(op_times.std(), 4) if valid_count > 0 else None,
+            "min_time": round(op_times.min(), 4) if valid_count > 0 else None,
+            "max_time": round(op_times.max(), 4) if valid_count > 0 else None,
+            "total_time": round(op_times.sum(), 4) if valid_count > 0 else None,
+            "applications_with_data": valid_count,
+            "applications_missing_data": total_applications - valid_count
         }
     else:
-        result["operator_processing"] = {"error": "No operator processing time column found or column is not numeric"}
+        result["operator_processing"] = {
+            "error": "No operator processing time column found or column is not numeric",
+            "available_op_columns": op_cols,
+            "searched_patterns": TIME_PATTERNS
+        }
     
     # Calculate efficiency comparison if both are available
-    if "error" not in result.get("ai_processing", {}) and "error" not in result.get("operator_processing", {}):
-        ai_mean = result["ai_processing"]["mean"]
-        op_mean = result["operator_processing"]["mean"]
-        result["comparison"] = {
-            "ai_vs_operator_ratio": round(ai_mean / op_mean, 4) if op_mean > 0 else None,
-            "faster_by": "AI" if ai_mean < op_mean else "Operator",
-            "time_difference": round(abs(ai_mean - op_mean), 4)
-        }
+    ai_proc = result.get("ai_processing", {})
+    op_proc = result.get("operator_processing", {})
+    
+    if "error" not in ai_proc and "error" not in op_proc:
+        ai_avg = ai_proc.get("average_per_application")
+        op_avg = op_proc.get("average_per_application")
+        
+        if ai_avg is not None and op_avg is not None and op_avg > 0:
+            result["comparison"] = {
+                "ai_avg_per_application": ai_avg,
+                "operator_avg_per_application": op_avg,
+                "ai_vs_operator_ratio": round(ai_avg / op_avg, 4),
+                "faster_by": "AI" if ai_avg < op_avg else "Operator",
+                "time_difference_per_application": round(abs(ai_avg - op_avg), 4),
+                "speedup_factor": round(op_avg / ai_avg, 2) if ai_avg > 0 else None
+            }
+    
+    # Summary for easy reading
+    result["summary"] = {
+        "ai_average_time_per_application": ai_proc.get("average_per_application") if "error" not in ai_proc else "N/A",
+        "operator_average_time_per_application": op_proc.get("average_per_application") if "error" not in op_proc else "N/A"
+    }
     
     return result
 
@@ -2633,6 +2764,513 @@ def _smart_cities_decision_flow(df: pd.DataFrame, ai_cols: List, op_cols: List) 
     return result
 
 
+def _smart_cities_confusion_matrix(df: pd.DataFrame, gt_cols: List, app_cols: List, ai_cols: List) -> Dict:
+    """
+    Calculate confusion matrix for AI decisions based on GT vs APP field comparison.
+    
+    Logic:
+    - Ground truth: If ANY GT_* field != corresponding APP_* field -> should be REJECTED
+    - If ALL GT_* fields == corresponding APP_* fields -> should be ACCEPTED
+    - Compare AI decision with this ground truth to get TP/FP/TN/FN
+    """
+    result = {"analysis": "confusion_matrix"}
+    
+    # Find AI decision column
+    ai_decision_col = next((c for c in ai_cols if 'decision' in c.lower()), None)
+    
+    if not ai_decision_col:
+        result["error"] = "No AI decision column found"
+        result["available_ai_columns"] = ai_cols
+        return result
+    
+    # Match GT_ columns with APP_ columns
+    matched_fields = []
+    for gt_col in gt_cols:
+        field_name = gt_col[3:]  # Remove 'GT_' prefix
+        app_col = f"APP_{field_name}"
+        if app_col in app_cols:
+            matched_fields.append((gt_col, app_col, field_name))
+    
+    if not matched_fields:
+        result["error"] = "Could not match any GT_ columns with APP_ columns"
+        result["gt_columns"] = gt_cols
+        result["app_columns"] = app_cols
+        return result
+    
+    # Calculate ground truth for each row: should_be_rejected = any mismatch
+    def should_be_rejected(row):
+        for gt_col, app_col, _ in matched_fields:
+            if row[gt_col] != row[app_col]:
+                return True
+        return False
+    
+    df_analysis = df.copy()
+    df_analysis['_should_reject'] = df_analysis.apply(should_be_rejected, axis=1)
+    df_analysis['_ai_accepted'] = df_analysis[ai_decision_col].apply(
+        lambda x: 'accept' in str(x).lower()
+    )
+    
+    # Calculate confusion matrix
+    # TP: AI accepted AND should be accepted (not rejected)
+    # FP: AI accepted BUT should be rejected
+    # TN: AI rejected AND should be rejected
+    # FN: AI rejected BUT should be accepted (not rejected)
+    
+    tp = len(df_analysis[(df_analysis['_ai_accepted'] == True) & (df_analysis['_should_reject'] == False)])
+    fp = len(df_analysis[(df_analysis['_ai_accepted'] == True) & (df_analysis['_should_reject'] == True)])
+    tn = len(df_analysis[(df_analysis['_ai_accepted'] == False) & (df_analysis['_should_reject'] == True)])
+    fn = len(df_analysis[(df_analysis['_ai_accepted'] == False) & (df_analysis['_should_reject'] == False)])
+    
+    total = len(df)
+    
+    result["confusion_matrix"] = {
+        "true_positives": tp,
+        "false_positives": fp,
+        "true_negatives": tn,
+        "false_negatives": fn
+    }
+    
+    result["matrix_table"] = {
+        "headers": ["", "Should Accept (GT=APP)", "Should Reject (GT!=APP)"],
+        "rows": [
+            ["AI Accepted", tp, fp],
+            ["AI Rejected", fn, tn]
+        ]
+    }
+    
+    # Calculate metrics
+    accuracy = (tp + tn) / total if total > 0 else 0
+    precision = tp / (tp + fp) if (tp + fp) > 0 else 0
+    recall = tp / (tp + fn) if (tp + fn) > 0 else 0
+    f1_score = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
+    
+    result["metrics"] = {
+        "accuracy": round(accuracy, 4),
+        "precision": round(precision, 4),
+        "recall": round(recall, 4),
+        "f1_score": round(f1_score, 4)
+    }
+    
+    result["fields_compared"] = [f[2] for f in matched_fields]
+    result["ai_decision_column"] = ai_decision_col
+    result["total_applications"] = total
+    
+    return result
+
+
+def _smart_cities_accuracy_metrics(df: pd.DataFrame, gt_cols: List, app_cols: List, ai_cols: List) -> Dict:
+    """
+    Calculate detailed accuracy metrics: true positives, false positives, 
+    true negatives, false negatives with per-field breakdown.
+    
+    An AI accepted that should be accepted is a true positive.
+    An AI accepted that should be rejected is a false positive.
+    An AI rejected that should be rejected is a true negative.
+    An AI rejected that should be accepted is a false negative.
+    """
+    result = {"analysis": "ai_accuracy_metrics"}
+    
+    # First get the confusion matrix data
+    cm_result = _smart_cities_confusion_matrix(df, gt_cols, app_cols, ai_cols)
+    
+    if "error" in cm_result:
+        return cm_result
+    
+    # Copy main metrics
+    result["confusion_matrix"] = cm_result["confusion_matrix"]
+    result["metrics"] = cm_result["metrics"]
+    result["fields_compared"] = cm_result["fields_compared"]
+    result["ai_decision_column"] = cm_result["ai_decision_column"]
+    result["total_applications"] = cm_result["total_applications"]
+    
+    # Add detailed breakdown
+    tp = cm_result["confusion_matrix"]["true_positives"]
+    fp = cm_result["confusion_matrix"]["false_positives"]
+    tn = cm_result["confusion_matrix"]["true_negatives"]
+    fn = cm_result["confusion_matrix"]["false_negatives"]
+    total = cm_result["total_applications"]
+    
+    result["detailed_breakdown"] = {
+        "true_positives": {
+            "count": tp,
+            "percentage": round(tp / total * 100, 2) if total > 0 else 0,
+            "description": "AI correctly accepted applications with matching GT/APP data"
+        },
+        "false_positives": {
+            "count": fp,
+            "percentage": round(fp / total * 100, 2) if total > 0 else 0,
+            "description": "AI incorrectly accepted applications with mismatched GT/APP data"
+        },
+        "true_negatives": {
+            "count": tn,
+            "percentage": round(tn / total * 100, 2) if total > 0 else 0,
+            "description": "AI correctly rejected applications with mismatched GT/APP data"
+        },
+        "false_negatives": {
+            "count": fn,
+            "percentage": round(fn / total * 100, 2) if total > 0 else 0,
+            "description": "AI incorrectly rejected applications with matching GT/APP data"
+        }
+    }
+    
+    # Per-field error analysis for false positives
+    ai_decision_col = cm_result["ai_decision_column"]
+    matched_fields = []
+    for gt_col in gt_cols:
+        field_name = gt_col[3:]
+        app_col = f"APP_{field_name}"
+        if app_col in app_cols:
+            matched_fields.append((gt_col, app_col, field_name))
+    
+    # Find which fields caused false positives (AI accepted but should have rejected)
+    df_fp = df[df[ai_decision_col].apply(lambda x: 'accept' in str(x).lower())]
+    field_fp_counts = {}
+    
+    for gt_col, app_col, field_name in matched_fields:
+        mismatch_count = (df_fp[gt_col] != df_fp[app_col]).sum()
+        if mismatch_count > 0:
+            field_fp_counts[field_name] = int(mismatch_count)
+    
+    if field_fp_counts:
+        sorted_fields = sorted(field_fp_counts.items(), key=lambda x: x[1], reverse=True)
+        result["false_positive_field_breakdown"] = dict(sorted_fields)
+        result["most_problematic_field"] = sorted_fields[0][0] if sorted_fields else None
+    
+    return result
+
+
+def _discover_files(client: Minio, bucket_name: str, file_extensions: List[str] = None) -> Dict[str, List[str]]:
+    """
+    Discover files in a bucket, optionally filtered by extension.
+    Used for auto-discovery when specified paths fail.
+    
+    Args:
+        client: MinIO client instance
+        bucket_name: Name of the bucket to search
+        file_extensions: List of extensions to filter (e.g., ['.pkl', '.json', '.pdf'])
+                        If None, returns all files organized by type
+    
+    Returns:
+        Dict with keys 'pickle', 'json', 'pdf', 'other' containing file paths
+    """
+    files_by_type = {
+        "pickle": [],
+        "json": [],
+        "pdf": [],
+        "other": []
+    }
+    try:
+        objects = client.list_objects(bucket_name, recursive=True)
+        for obj in objects:
+            name = obj.object_name.lower()
+            if name.endswith(('.pkl', '.pickle')):
+                files_by_type["pickle"].append(obj.object_name)
+            elif name.endswith('.json'):
+                files_by_type["json"].append(obj.object_name)
+            elif name.endswith('.pdf'):
+                files_by_type["pdf"].append(obj.object_name)
+            else:
+                files_by_type["other"].append(obj.object_name)
+    except Exception as e:
+        logger.warning(f"Error listing objects for auto-discovery: {e}")
+    
+    # Filter by requested extensions if specified
+    if file_extensions:
+        filtered = []
+        for ext in file_extensions:
+            ext_lower = ext.lower().lstrip('.')
+            if ext_lower in ['pkl', 'pickle']:
+                filtered.extend(files_by_type["pickle"])
+            elif ext_lower == 'json':
+                filtered.extend(files_by_type["json"])
+            elif ext_lower == 'pdf':
+                filtered.extend(files_by_type["pdf"])
+        return {"filtered_files": filtered}
+    
+    # Return non-empty categories only
+    return {k: v for k, v in files_by_type.items() if v}
+
+
+@cl.step(type="tool", name="Smart Cities File Comparison", show_input=False)
+async def compare_smart_cities_files(
+    bucket_name: str,
+    object_paths: List[str],
+    comparison_type: str = "full_summary"
+) -> Dict:
+    """
+    Compare Smart Cities pilot data across multiple pickle files.
+    
+    Args:
+        bucket_name: Name of the MinIO bucket containing the pickle files
+        object_paths: List of paths to pickle files to compare
+        comparison_type: Type of comparison to perform:
+            - 'decisions': Compare AI and operator decision distributions
+            - 'processing_time': Compare processing times across files
+            - 'full_summary': Complete comparison with all metrics (default)
+        
+    Returns:
+        Dict containing comparison results across all files
+    """
+    try:
+        # Check user access using dynamic pilot context
+        pilot_context = _get_user_pilot_context()
+        if pilot_context["pilot"] != "smart_cities" or not pilot_context["has_access"]:
+            logger.warning(f"Access denied for user {pilot_context['user_email']} to Smart Cities comparison tool")
+            return {
+                "error": "Access denied. This tool is only available to Smart Cities pilot users.",
+                "user_email": pilot_context["user_email"],
+                "detected_pilot": pilot_context["pilot"]
+            }
+
+        # Validate inputs
+        if not object_paths or len(object_paths) < 1:
+            return {"error": "At least one object_path is required for comparison."}
+        
+        valid_comparison_types = ['decisions', 'processing_time', 'full_summary']
+        if comparison_type not in valid_comparison_types:
+            return {"error": f"Invalid comparison_type '{comparison_type}'. Valid options: {valid_comparison_types}"}
+        
+        # Get MinIO client
+        client = await get_user_minio_client()
+        
+        # Validate bucket exists
+        if not bucket_name:
+            return {"error": "bucket_name parameter is required. Use list_user_buckets() to discover available buckets."}
+        
+        if not client.bucket_exists(bucket_name):
+            return {"error": f"Bucket '{bucket_name}' does not exist. Use list_user_buckets() to get a list of available buckets."}
+        
+        # Load and analyze each file
+        file_results = []
+        errors = []
+        
+        for object_path in object_paths:
+            try:
+                # Validate pickle file extension
+                if not object_path.lower().endswith('.pkl') and not object_path.lower().endswith('.pickle'):
+                    errors.append({"file": object_path, "error": "Not a pickle file"})
+                    continue
+                
+                # Download pickle from MinIO
+                try:
+                    response = client.get_object(bucket_name, object_path)
+                    pickle_bytes = response.read()
+                    response.close()
+                    response.release_conn()
+                except S3Error as e:
+                    errors.append({
+                        "file": object_path, 
+                        "error": f"File not found or access error: {str(e)}",
+                        "suggestion": f"Use get_minio_info(bucket_name='{bucket_name}') to list available files"
+                    })
+                    continue
+                
+                # Write to temporary file and load with pandas
+                with tempfile.NamedTemporaryFile(delete=False, suffix='.pkl') as temp_file:
+                    temp_file.write(pickle_bytes)
+                    temp_file_path = temp_file.name
+                
+                try:
+                    df = pd.read_pickle(temp_file_path)
+                    
+                    if not isinstance(df, pd.DataFrame):
+                        errors.append({"file": object_path, "error": "File does not contain a pandas DataFrame"})
+                        continue
+                    
+                    # Extract metrics from this file
+                    file_data = _extract_file_metrics(df, object_path)
+                    file_results.append(file_data)
+                    
+                finally:
+                    try:
+                        os.unlink(temp_file_path)
+                    except:
+                        pass
+                        
+            except Exception as e:
+                errors.append({"file": object_path, "error": str(e)})
+        
+        if not file_results:
+            # Auto-discover available files to help user
+            discovered = _discover_files(client, bucket_name)
+            return {
+                "error": "Could not load any pickle files successfully.",
+                "file_errors": errors,
+                "available_files": discovered if discovered else {},
+                "suggestion": f"Try using these exact paths: {discovered.get('pickle', [])}" if discovered.get('pickle') else "No pickle files found in bucket",
+                "help": "Use list_user_buckets() to find available buckets and their data_files"
+            }
+        
+        # Build comparison result based on comparison_type
+        result = {
+            "comparison_type": comparison_type,
+            "bucket": bucket_name,
+            "files_analyzed": len(file_results),
+            "files_requested": len(object_paths)
+        }
+        
+        if errors:
+            result["file_errors"] = errors
+        
+        if comparison_type == 'decisions' or comparison_type == 'full_summary':
+            result["decisions_comparison"] = _build_decisions_comparison(file_results)
+        
+        if comparison_type == 'processing_time' or comparison_type == 'full_summary':
+            result["processing_time_comparison"] = _build_processing_time_comparison(file_results)
+        
+        if comparison_type == 'full_summary':
+            result["summary_table"] = _build_summary_table(file_results)
+        
+        # Add user context
+        result["user_context"] = {
+            "pilot": pilot_context["pilot"],
+            "default_bucket": pilot_context["default_bucket"]
+        }
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"Unexpected error in compare_smart_cities_files: {str(e)}")
+        return {"error": f"Unexpected error: {str(e)}"}
+
+
+def _extract_file_metrics(df: pd.DataFrame, object_path: str) -> Dict:
+    """Extract key metrics from a single DataFrame for comparison."""
+    file_name = object_path.split('/')[-1]
+    total_rows = len(df)
+    
+    # Identify column groups
+    gt_cols = [c for c in df.columns if c.startswith('GT_')]
+    app_cols = [c for c in df.columns if c.startswith('APP_')]
+    ai_cols = [c for c in df.columns if c.startswith('AI_')]
+    op_cols = [c for c in df.columns if c.startswith('OP_')]
+    
+    result = {
+        "file": file_name,
+        "object_path": object_path,
+        "total_rows": total_rows
+    }
+    
+    # AI decision metrics
+    ai_decision_col = next((c for c in ai_cols if 'decision' in c.lower()), None)
+    if ai_decision_col:
+        ai_decisions = df[ai_decision_col].value_counts().to_dict()
+        result["ai_decisions"] = ai_decisions
+        
+        # Count AI decisions that lead to operator intervention (flagged/verification)
+        flagged = sum(v for k, v in ai_decisions.items() 
+                     if 'flag' in str(k).lower() or 'verif' in str(k).lower())
+        result["ai_flagged_count"] = flagged
+        result["ai_flagged_rate"] = round(flagged / total_rows, 4) if total_rows > 0 else 0
+    
+    # Operator decision metrics
+    op_decision_col = next((c for c in op_cols if 'decision' in c.lower()), None)
+    if op_decision_col:
+        op_decisions = df[op_decision_col].value_counts().to_dict()
+        result["operator_decisions"] = op_decisions
+        
+        # Count operator interventions (any decision that's not direct accept)
+        interventions = sum(v for k, v in op_decisions.items() 
+                          if 'fix' in str(k).lower() or 'reject' in str(k).lower() or 'verif' in str(k).lower())
+        result["operator_interventions"] = interventions
+        result["operator_intervention_rate"] = round(interventions / total_rows, 4) if total_rows > 0 else 0
+    
+    # Processing time metrics using broadened patterns
+    ai_time_col = next((c for c in ai_cols if any(p in c.lower() for p in TIME_PATTERNS)), None)
+    if ai_time_col and pd.api.types.is_numeric_dtype(df[ai_time_col]):
+        ai_times = df[ai_time_col].dropna()
+        result["ai_avg_time_per_app"] = round(ai_times.mean(), 4) if len(ai_times) > 0 else None
+        result["ai_total_time"] = round(ai_times.sum(), 4) if len(ai_times) > 0 else None
+        result["ai_time_column_found"] = ai_time_col
+    
+    op_time_col = next((c for c in op_cols if any(p in c.lower() for p in TIME_PATTERNS)), None)
+    if op_time_col and pd.api.types.is_numeric_dtype(df[op_time_col]):
+        op_times = df[op_time_col].dropna()
+        result["op_avg_time_per_app"] = round(op_times.mean(), 4) if len(op_times) > 0 else None
+        result["op_total_time"] = round(op_times.sum(), 4) if len(op_times) > 0 else None
+        result["op_time_column_found"] = op_time_col
+    
+    return result
+
+
+def _build_decisions_comparison(file_results: List[Dict]) -> Dict:
+    """Build decisions comparison across files."""
+    comparison = {
+        "files": []
+    }
+    
+    for fr in file_results:
+        file_data = {
+            "file": fr["file"],
+            "total_rows": fr["total_rows"],
+            "ai_decisions": fr.get("ai_decisions", {}),
+            "operator_decisions": fr.get("operator_decisions", {}),
+            "ai_flagged_rate": fr.get("ai_flagged_rate"),
+            "operator_intervention_rate": fr.get("operator_intervention_rate")
+        }
+        comparison["files"].append(file_data)
+    
+    # Calculate aggregate stats
+    if len(file_results) > 1:
+        avg_ai_flagged = sum(fr.get("ai_flagged_rate", 0) for fr in file_results) / len(file_results)
+        avg_op_intervention = sum(fr.get("operator_intervention_rate", 0) for fr in file_results) / len(file_results)
+        comparison["aggregate"] = {
+            "average_ai_flagged_rate": round(avg_ai_flagged, 4),
+            "average_operator_intervention_rate": round(avg_op_intervention, 4)
+        }
+    
+    return comparison
+
+
+def _build_processing_time_comparison(file_results: List[Dict]) -> Dict:
+    """Build processing time comparison across files."""
+    comparison = {
+        "files": []
+    }
+    
+    for fr in file_results:
+        file_data = {
+            "file": fr["file"],
+            "total_rows": fr["total_rows"],
+            "ai_avg_time_per_app": fr.get("ai_avg_time_per_app"),
+            "op_avg_time_per_app": fr.get("op_avg_time_per_app"),
+            "ai_total_time": fr.get("ai_total_time"),
+            "op_total_time": fr.get("op_total_time")
+        }
+        comparison["files"].append(file_data)
+    
+    # Calculate aggregate stats
+    if len(file_results) > 1:
+        ai_times = [fr.get("ai_avg_time_per_app") for fr in file_results if fr.get("ai_avg_time_per_app") is not None]
+        op_times = [fr.get("op_avg_time_per_app") for fr in file_results if fr.get("op_avg_time_per_app") is not None]
+        
+        comparison["aggregate"] = {}
+        if ai_times:
+            comparison["aggregate"]["average_ai_time_across_files"] = round(sum(ai_times) / len(ai_times), 4)
+        if op_times:
+            comparison["aggregate"]["average_op_time_across_files"] = round(sum(op_times) / len(op_times), 4)
+    
+    return comparison
+
+
+def _build_summary_table(file_results: List[Dict]) -> List[Dict]:
+    """Build a summary table for all files."""
+    table = []
+    
+    for fr in file_results:
+        row = {
+            "file": fr["file"],
+            "total_rows": fr["total_rows"],
+            "avg_ai_time_per_app": fr.get("ai_avg_time_per_app"),
+            "avg_op_time_per_app": fr.get("op_avg_time_per_app"),
+            "operator_interventions": fr.get("operator_interventions"),
+            "intervention_rate": fr.get("operator_intervention_rate")
+        }
+        table.append(row)
+    
+    return table
+
+
 function_map = {
     "get_docs": get_docs,
     "get_minio_info": get_minio_info,
@@ -2654,5 +3292,6 @@ function_map = {
     "get_pipeline_id": get_pipeline_id,
     "parse_pdf_from_minio": parse_pdf_from_minio,
     "plot_data": plot_data,
-    "analyze_smart_cities_data": analyze_smart_cities_data
+    "analyze_smart_cities_data": analyze_smart_cities_data,
+    "compare_smart_cities_files": compare_smart_cities_files
 }

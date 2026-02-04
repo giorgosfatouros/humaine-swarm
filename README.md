@@ -242,6 +242,28 @@ Ask questions or give commands related to your ML workflows, Kubeflow pipelines,
 
 The assistant will use its configured tools to fetch information and execute tasks, providing responses and results in the chat.
 
+## Example Workflow
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Agent
+    participant ListBuckets as list_user_buckets
+    participant GetInfo as get_minio_info
+    participant Analyze as analyze_smart_cities_data
+
+    User->>Agent: Ask about Smart Cities data
+    Agent->>ListBuckets: Discover available buckets
+    ListBuckets-->>Agent: Return bucket list
+    Agent->>GetInfo: List pickle files in bucket
+    GetInfo-->>Agent: Return file list
+    Agent->>User: Ask which file to analyze
+    User->>Agent: Select file (e.g., sim-pilot-apps-v0.pkl)
+    Agent->>Analyze: Load and analyze with query_type
+    Analyze-->>Agent: Return analysis results
+    Agent->>User: Present insights
+```
+
 ## Citation
 
 If you use this in your research please cite:

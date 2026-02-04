@@ -178,3 +178,5 @@ __pycache__/
 
 transcript_stt.py
 notebooks/
+
+data/
