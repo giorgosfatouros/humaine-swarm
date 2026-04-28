@@ -17,22 +17,17 @@ persist_user_env = false
 
 # Whether to mask user environment variables (API keys) in the UI with password type
 # Set to true to show API keys as ***, false to show them as plain text
-mask_user_env = true
+mask_user_env = false
 
 # Authorized origins
 allow_origins = ["*"]
-
-# WebSocket transport configuration for Docker/load balancer compatibility
-# Use websocket-only transport for better consistency with load balancers
-# Even with sticky sessions, load balancers sometimes struggle to route consistently
-transports = ["websocket"]
 
 [features]
 # Process and display HTML in messages. This can be a security risk (see https://stackoverflow.com/questions/19603097/why-is-it-dangerous-to-render-user-generated-html-or-javascript)
 unsafe_allow_html = false
 
 # Process and display mathematical expressions. This can clash with "$" characters in messages.
-latex = true
+latex = false
 
 # Autoscroll new user messages at the top of the window
 user_message_autoscroll = true
@@ -52,7 +47,7 @@ reaction_on_message_received = false
 
 # Authorize users to spontaneously upload files with messages
 [features.spontaneous_file_upload]
-    enabled = false
+    enabled = true
     # Define accepted file types using MIME types
     # Examples:
     # 1. For specific file types:
@@ -63,8 +58,8 @@ reaction_on_message_received = false
     #    accept = { "application/octet-stream" = [".xyz", ".pdb"] }
     # Note: Using "*/*" is not recommended as it may cause browser warnings
     accept = ["*/*"]
-    max_files = 20
-    max_size_mb = 500
+    max_files = 1
+    max_size_mb = 50
 
 [features.audio]
     # Enable audio features
@@ -91,7 +86,7 @@ reaction_on_message_received = false
 
 [UI]
 # Name of the assistant.
-name = "HumAIne Swarm Assistant"
+name = "Assistant"
 
 # default_theme = "dark"
 
@@ -99,7 +94,7 @@ name = "HumAIne Swarm Assistant"
 # If not set, the browser's language will be used
 # language = "en-US"
 
-layout = "wide"
+# layout = "wide"
 
 # default_sidebar_state = "open"
 
