@@ -1,7 +1,13 @@
+from utils.dotenv_local import load_swarm_dotenv
+
+load_swarm_dotenv()
+
 import asyncio
 from openai import AsyncOpenAI
 import chainlit as cl
 from chainlit import User
+from starlette.datastructures import Headers
+
 from classes.user_handler import UserSessionManager
 from starters import set_starters
 import json
@@ -9,6 +15,11 @@ import logging
 from agents.code import function_map, read_prompt
 from utils.helper_functions import setup_logging
 from utils.config import settings
+from utils.keycloak_header_auth import (
+    claims_to_display_name,
+    claims_to_identifier,
+    validate_bearer_token,
+)
 from typing import Optional, Dict
 from chainlit.types import ThreadDict
 import plotly.graph_objects as go
@@ -27,6 +38,45 @@ system_prompt = read_prompt('system')
 async def on_follow_up_question(action):
     await main(cl.Message(content=action.value))
     await action.remove()
+
+
+@cl.header_auth_callback
+async def header_auth_callback(headers: Headers) -> Optional[User]:
+    """
+    Authenticate embedded Common FE: Bearer Keycloak access token -> Chainlit session cookie.
+    Must mirror oauth_callback metadata so UserSessionManager receives oauth_token.
+    """
+    auth = headers.get("authorization") or ""
+    if not auth.lower().startswith("bearer "):
+        logger.error("Header auth: missing or non-Bearer Authorization header")
+        return None
+    token = auth[7:].strip()
+    if not token:
+        logger.error("Header auth: empty Bearer token")
+        return None
+
+    claims = validate_bearer_token(token)
+    if not claims:
+        logger.error(
+            "Header auth: Keycloak token rejected (see Keycloak/JWKS connectivity and token issuer)"
+        )
+        return None
+
+    identifier = claims_to_identifier(claims)
+    display_name = claims_to_display_name(claims)
+    raw_flat = {str(k): "" if v is None else str(v) for k, v in claims.items()}
+
+    user = User(
+        identifier=identifier,
+        display_name=display_name,
+        metadata={
+            "oauth_token": token,
+            "provider": "keycloak",
+            "raw_user_data": raw_flat,
+        },
+    )
+    return user
+
 
 @cl.oauth_callback
 def oauth_callback(

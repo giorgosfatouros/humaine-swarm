@@ -148,6 +148,10 @@ The HumAIne Swarm Assistant can perform a wide range of tasks, including:
 3.  **Run the Application:**
     *   Execute `chainlit run app.py -w` to start the Chainlit application.
 
+**JWKS / TLS (embedded Common FE):** Header auth loads Keycloak signing keys over HTTPS. If Chainlit logs `CERTIFICATE_VERIFY_FAILED`, install your CA or set `KEYCLOAK_CA_BUNDLE=/path/to/ca.pem`. For local dev only: `KEYCLOAK_JWKS_SSL_VERIFY=false` (JWKS fetch only).
+
+Variables must be visible to **Python/Chainlit**: put them in **`humaine-swarm/.env`** (loaded at startup) or `export` in the terminal before `chainlit run`. Putting them only in **`common-fe/.env`** does nothing for Chainlit.
+
 
 ### Docker Deployment
 
