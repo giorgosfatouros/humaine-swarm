@@ -117,7 +117,7 @@ The HumAIne Swarm Assistant can perform a wide range of tasks, including:
 
 *   **Documentation & Information Retrieval:**
     *   Answer questions about the HumAIne project.
-    *   Retrieve relevant documents and information using RAG from a Pinecone vector store.
+    *   Retrieve relevant documents and information using RAG from a Pinecone vector store (index populated via `python data_injection.py` from `.docs/` and `.md_files/`).
     *   Optimize user queries for better information retrieval.
 *   **Kubeflow Management:**
     *   List available Kubeflow pipelines, experiments, and runs.
