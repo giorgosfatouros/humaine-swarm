@@ -4,13 +4,13 @@ functions = [
         "type": "function",
         "function": {
             "name": "get_docs", 
-            "description": "Retrieve information about HumAIne EU-funded research solutions and Kubeflow pipelines documentation from the knowledge base.",
+            "description": "Retrieve information from the HumAIne knowledge base: project/Kubeflow documentation, the HAIC (Human-AI Collaboration) evaluation framework, HAIC Benchmark Suite platform, logging schema (haic.decisions.v1), and HAIC metrics (F, D, HCL, Tr, A, S, EL, EfficiencyScore) including interpretation guidance.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "query": {
                         "type": "string",
-                        "description": "Search query for retrieving information. This can include questions about HumAIne project (e.g., objectives, consortium, tasks), or documentation related to Kubeflow pipelines and their usage within the project."
+                        "description": "Search query for retrieving documentation. Use for HumAIne project info, Kubeflow pipelines, HAIC/benchmark suite integration, logging schema fields, metric definitions, and how to interpret collaboration metrics."
                     },
                 },
                 "required": ["query"],
