@@ -16,6 +16,7 @@ MANIFEST
 
 # Virtual environments
 .env
+env.sh
 .venv
 env/
 venv/
@@ -58,6 +59,7 @@ test_data/
 
 # Documentation
 .docs/
+.md_files/
 docs/_build/
 /site
 
