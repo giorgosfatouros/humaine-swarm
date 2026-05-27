@@ -4,13 +4,13 @@ functions = [
         "type": "function",
         "function": {
             "name": "get_docs", 
-            "description": "Retrieve information from the HumAIne knowledge base: project/Kubeflow documentation, the HAIC (Human-AI Collaboration) evaluation framework, HAIC Benchmark Suite platform, logging schema (haic.decisions.v1), and HAIC metrics (F, D, HCL, Tr, A, S, EL, EfficiencyScore) including interpretation guidance.",
+            "description": "Retrieve information from the HumAIne RAG knowledge base: platform integration and Training Centre deliverables, Active Learning (modAL, HumAL ticketing pilot), XAI (humaine-explainerdashboard, SHAP/LIME), HumAIne Swarm API and usage, Kubeflow/project documentation, and HAIC evaluation framework content when indexed (HAIC Benchmark Suite, logging schema haic.decisions.v1, metrics F/D/HCL/Tr/A/S/EL/EfficiencyScore and interpretation).",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "query": {
                         "type": "string",
-                        "description": "Search query for retrieving documentation. Use for HumAIne project info, Kubeflow pipelines, HAIC/benchmark suite integration, logging schema fields, metric definitions, and how to interpret collaboration metrics."
+                        "description": "Search query for indexed HumAIne documentation. Use for project deliverables, Active Learning, XAI and explainer dashboard, Swarm assistant capabilities, Kubeflow/MLOps project docs, HAIC metrics/logging/benchmark suite, and hackathon AL+XAI technical questions."
                     },
                 },
                 "required": ["query"],
