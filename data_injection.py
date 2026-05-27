@@ -22,12 +22,24 @@ PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 pc = Pinecone(api_key=PINECONE_API_KEY)
 embedding_model = OpenAIEmbeddings(model=EMBED_MODEL)
 
-HAIC_TOPIC_BY_DOC_ID = {
+DOC_TOPIC_BY_DOC_ID = {
+    # HAIC benchmark docs (when present in .md_files)
     "01_haic_overview": "overview",
     "02_haic_metrics_reference": "metrics",
     "03_metric_interpretation_guide": "interpretation",
     "04_logging_schema": "schema",
     "05_benchmark_suite_platform": "platform",
+    # RAG corpus from .files-for-rag batch
+    "humaine_rag_technical_reference": "al_xai",
+    "humaine_active_learning_api_reference": "active_learning",
+    "humaine_explainerdashboard_api_reference": "xai",
+    "humaine_swarm_api_reference": "swarm",
+    "xai_library_components_overview": "xai",
+    "README_XAI_HumAIne": "readme",
+    "README_Humaine_Active_Learning": "readme",
+    "RELEASE_NOTES_XAI_HumAIne": "release_notes",
+    "D5_1__-_HumAIne_Platform_Integration": "platform",
+    "D5_4_Training_Center_Development_for_Human-AI_Collaboration": "training_centre",
 }
 
 MARKDOWN_HEADERS = [("#", "h1"), ("##", "h2"), ("###", "h3")]
@@ -51,8 +63,11 @@ def process_data(
     docs_dir: str = ".docs",
     md_dir: str = ".md_files",
 ):
-    sources = sources or ["pdf", "haic"]
+    sources = sources or ["pdf", "md"]
     logger.info("Starting data processing (sources=%s)", sources)
+
+    if "md" in sources:
+        delete_legacy_haic_vectors()
 
     df = get_deliverables(sources=sources, docs_dir=docs_dir, md_dir=md_dir)
     if df.empty:
@@ -114,7 +129,7 @@ def load_markdown_documents(md_dir: str = ".md_files") -> pd.DataFrame:
     data = []
     for root, _, files in os.walk(md_dir):
         for file in sorted(files):
-            if not file.lower().endswith(".md"):
+            if not file.lower().endswith(".md") or file == "README.md":
                 continue
             file_path = os.path.join(root, file)
             try:
@@ -127,7 +142,7 @@ def load_markdown_documents(md_dir: str = ".md_files") -> pd.DataFrame:
                     {
                         "title": title,
                         "text": content,
-                        "source": "haic",
+                        "source": "md",
                         "doc_id": doc_id,
                     }
                 )
@@ -144,7 +159,7 @@ def get_deliverables(
     docs_dir: str = ".docs",
     md_dir: str = ".md_files",
 ) -> pd.DataFrame:
-    sources = sources or ["pdf", "haic"]
+    sources = sources or ["pdf", "md"]
     frames = []
 
     try:
@@ -153,7 +168,7 @@ def get_deliverables(
             if not pdf_df.empty:
                 frames.append(pdf_df)
 
-        if "haic" in sources:
+        if "md" in sources:
             md_df = load_markdown_documents(md_dir)
             if not md_df.empty:
                 frames.append(md_df)
@@ -166,9 +181,9 @@ def get_deliverables(
 
         chunked_data = []
         for _, row in df.iterrows():
-            if row["source"] == "haic":
-                delete_haic_vectors_for_doc(row["doc_id"])
-                chunked_data.extend(chunk_haic_markdown(row))
+            if row["source"] == "md":
+                delete_md_vectors_for_doc(row["doc_id"])
+                chunked_data.extend(chunk_markdown(row))
             else:
                 chunked_data.extend(chunk_pdf_documents(row))
 
@@ -194,12 +209,14 @@ def chunk_pdf_documents(row) -> list:
     text_splitter = SemanticChunker(
         embedding_model,
         breakpoint_threshold_type="gradient",
-        min_chunk_size=100,
+        min_chunk_size=3000,
         breakpoint_threshold_amount=0.8,
     )
     text = row["text"]
     if not text:
         return chunked_data
+
+    topic = DOC_TOPIC_BY_DOC_ID.get(row["doc_id"], "")
 
     try:
         docs = text_splitter.create_documents([text])
@@ -212,7 +229,7 @@ def chunk_pdf_documents(row) -> list:
                     "title": row["title"],
                     "source": row["source"],
                     "doc_id": row["doc_id"],
-                    "topic": "",
+                    "topic": topic,
                 }
             )
     except Exception as e:
@@ -220,13 +237,13 @@ def chunk_pdf_documents(row) -> list:
     return chunked_data
 
 
-def chunk_haic_markdown(row) -> list:
+def chunk_markdown(row) -> list:
     chunked_data = []
     text = row["text"]
     if not text:
         return chunked_data
 
-    topic = HAIC_TOPIC_BY_DOC_ID.get(row["doc_id"], "")
+    topic = DOC_TOPIC_BY_DOC_ID.get(row["doc_id"], "")
     header_splitter = MarkdownHeaderTextSplitter(
         headers_to_split_on=MARKDOWN_HEADERS, strip_headers=False
     )
@@ -244,48 +261,58 @@ def chunk_haic_markdown(row) -> list:
             if len(body) > 1200:
                 sub_docs = fallback_splitter.create_documents([body])
                 for j, sub in enumerate(sub_docs):
-                    chunk_text = format_haic_chunk(row["title"], section, sub.page_content)
-                    chunk_id = f"haic_{row['doc_id']}_chunk_{i}_{j}"
+                    chunk_text = format_md_chunk(row["title"], section, sub.page_content)
+                    chunk_id = f"md_{row['doc_id']}_chunk_{i}_{j}"
                     chunked_data.append(
                         {
                             "id": chunk_id,
                             "chunk_text": chunk_text,
                             "title": row["title"],
-                            "source": "haic",
+                            "source": "md",
                             "doc_id": row["doc_id"],
                             "topic": topic,
                         }
                     )
             else:
-                chunk_text = format_haic_chunk(row["title"], section, body)
-                chunk_id = f"haic_{row['doc_id']}_chunk_{i}"
+                chunk_text = format_md_chunk(row["title"], section, body)
+                chunk_id = f"md_{row['doc_id']}_chunk_{i}"
                 chunked_data.append(
                     {
                         "id": chunk_id,
                         "chunk_text": chunk_text,
                         "title": row["title"],
-                        "source": "haic",
+                        "source": "md",
                         "doc_id": row["doc_id"],
                         "topic": topic,
                     }
                 )
     except Exception as e:
-        logger.error("Error chunking HAIC document %s: %s", row["doc_id"], e)
+        logger.error("Error chunking markdown document %s: %s", row["doc_id"], e)
     return chunked_data
 
 
-def format_haic_chunk(title: str, section: str, body: str) -> str:
-    return f"[HAIC | {title} | {section}]\n{body}"
+def format_md_chunk(title: str, section: str, body: str) -> str:
+    return f"[MD | {title} | {section}]\n{body}"
 
 
-def delete_haic_vectors_for_doc(doc_id: str) -> None:
+def delete_legacy_haic_vectors() -> None:
+    """Remove vectors indexed with the deprecated source=haic channel."""
     try:
         index = pc.Index(INDEX_NAME)
-        index.delete(filter={"doc_id": doc_id, "source": "haic"})
-        logger.info("Deleted existing HAIC vectors for doc_id=%s", doc_id)
+        index.delete(filter={"source": "haic"})
+        logger.info("Deleted legacy vectors with source=haic")
+    except Exception as e:
+        logger.warning("Could not delete legacy haic vectors (may not exist): %s", e)
+
+
+def delete_md_vectors_for_doc(doc_id: str) -> None:
+    try:
+        index = pc.Index(INDEX_NAME)
+        index.delete(filter={"doc_id": doc_id, "source": "md"})
+        logger.info("Deleted existing MD vectors for doc_id=%s", doc_id)
     except Exception as e:
         logger.warning(
-            "Could not delete HAIC vectors for %s (may not exist yet): %s",
+            "Could not delete MD vectors for %s (may not exist yet): %s",
             doc_id,
             e,
         )
@@ -341,11 +368,11 @@ def check_and_create_index(index_name, dimension, spec):
 
 def parse_sources(value: str) -> List[str]:
     sources = [s.strip().lower() for s in value.split(",") if s.strip()]
-    valid = {"pdf", "haic"}
+    valid = {"pdf", "md"}
     invalid = set(sources) - valid
     if invalid:
         raise argparse.ArgumentTypeError(
-            f"Invalid sources: {invalid}. Use pdf and/or haic."
+            f"Invalid sources: {invalid}. Use pdf and/or md."
         )
     if not sources:
         raise argparse.ArgumentTypeError("At least one source is required.")
@@ -357,8 +384,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--sources",
         type=parse_sources,
-        default="pdf,haic",
-        help="Comma-separated sources to ingest: pdf, haic (default: pdf,haic)",
+        default="pdf,md",
+        help="Comma-separated sources to ingest: pdf, md (default: pdf,md)",
     )
     parser.add_argument(
         "--docs-dir",
@@ -368,7 +395,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--md-dir",
         default=".md_files",
-        help="Directory containing HAIC markdown documents (default: .md_files)",
+        help="Directory containing markdown documents (default: .md_files)",
     )
     args = parser.parse_args()
 
