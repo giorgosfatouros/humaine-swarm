@@ -346,7 +346,7 @@ async def optimize_query(search_query: str) -> str:
 @cl.step(type="tool", name="Documentation", show_input=False)
 async def get_docs(query: str):
     # optimized_query = await optimize_query(query)
-    retriever_humaine = VectorIndexRetriever(index=index, similarity_top_k=10)
+    retriever_humaine = VectorIndexRetriever(index=index, similarity_top_k=8)
     retrieved_documents = await retriever_humaine.aretrieve(query)
     logger.info(f"Retrieved documents: {retrieved_documents}")
     return rag_extract_deliverables(retrieved_documents)
