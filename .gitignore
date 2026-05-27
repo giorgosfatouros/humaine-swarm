@@ -3,6 +3,9 @@ __pycache__/
 *.py[cod]
 *$py.class
 .chainlit/translations/
+# RAG staging: track README only; dropped PDFs/MD stay local
+.files-for-rag/*
+!.files-for-rag/README.md
 # C extensions
 *.so
 .DS_Store
