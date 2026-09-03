@@ -28,6 +28,7 @@ Implemented in [classes/user_handler.py](../../classes/user_handler.py). All sta
 | Kubeflow credentials | `set_kubeflow_credentials`, `get_kubeflow_credentials`, `has_kubeflow_credentials`, `clear_kubeflow_credentials` | Username, password, optional namespace (Dex auth) |
 | Token metadata | `set_token_metadata`, `get_token_metadata`, `extract_and_store_token_info` | exp, email, roles, policies, etc. |
 | Policies / roles | `set_user_policies`, `get_user_policies`, `set_user_roles`, `get_user_roles` | From token (MinIO policies, Keycloak roles) |
+| Groups | `set_user_groups`, `get_user_groups` | Keycloak `groups` claim (used for HAIC pilot mapping) |
 | Refresh / clear | `should_refresh_token`, `clear_session` | Proactive refresh when exp &lt; 5 min; clear on token expiry |
 
 **`get_or_refresh_minio_credentials()`**: If credentials are invalid or about to expire, tries to refresh. On “token expired” errors it calls **`clear_session()`** and (if possible) sends a “session expired” message so the user re-authenticates.

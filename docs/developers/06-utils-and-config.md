@@ -12,27 +12,40 @@
 | MINIO_ENDPOINT | MINIO_ENDPOINT | `s3-minio.humaine-horizon.eu` |
 | MINIO_SECURE | MINIO_SECURE | `"true"` → True |
 | MINIO_API_ENDPOINT | MINIO_API_ENDPOINT | None |
+| HAIC_BASE_URL | HAIC_BASE_URL | `https://benchmark.humaine-horizon.eu/api` |
+| HAIC_API_KEY | HAIC_API_KEY | Optional; unused while HAIC API is public |
 | PINECONE_API_KEY | PINECONE_API_KEY | Required (no default) |
 | PINECONE_INDEX | — | `"humaine"` (hardcoded) |
-| LLM_MODEL | — | `"gpt-4.1-mini"` |
-| LLM_MAX_TOKENS | — | 2000 |
-| LLM_TEMPERATURE | — | 0 |
+| LLM_MODEL | — | `"gpt-5.6-luna"` |
+| LLM_REASONING_EFFORT | LLM_REASONING_EFFORT | `"medium"` |
 | EMBEDDING_MODEL | — | `"text-embedding-3-small"` |
 
 ### settings dict
 
-Passed as **kwargs** to **OpenAI `chat.completions.create()`**:
+Passed as **kwargs** to **OpenAI `responses.create()`**:
 
-- **model**, **temperature**, **max_tokens**, **top_p**, **frequency_penalty**, **presence_penalty**
+- **model**
 - **tools**: `functions` (from agents/definition.py)
 - **tool_choice**: `"auto"`
 - **parallel_tool_calls**: True
 - **stream**: True
+- **reasoning**: `{"effort": LLM_REASONING_EFFORT}`
+- **max_output_tokens**: OUTPUT_TOKEN_RESERVE
+
+### responses_adapter.py
+
+[utils/responses_adapter.py](../../utils/responses_adapter.py) converts session history to Responses API input items:
+
+- **extract_instructions(history)**: system prompt for top-level `instructions`
+- **build_responses_input(history)**: user/assistant messages plus `function_call` / `function_call_output` items
+- **convert_tools_for_responses(functions)**: flattens Chat Completions tool schemas for Responses API
+- **item_token_estimate(item, encoding)**: token counting for truncation across item shapes
 
 ### Context length
 
 - **MAX_CONTEXT_LENGTH**: 60000  
-- **MAX_INPUT_TOKENS**: MAX_CONTEXT_LENGTH - settings["max_tokens"]  
+- **OUTPUT_TOKEN_RESERVE**: 8000 (headroom for response and reasoning tokens)  
+- **MAX_INPUT_TOKENS**: MAX_CONTEXT_LENGTH - OUTPUT_TOKEN_RESERVE  
 Used in [classes/user_handler.py](../../classes/user_handler.py) for message-history truncation.
 
 ---

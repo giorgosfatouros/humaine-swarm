@@ -19,6 +19,8 @@ from minio import Minio
 from minio.error import S3Error
 from utils.helper_functions import get_kubeflow_client
 from classes.user_handler import UserSessionManager
+from utils.haic_pilot_map import resolve_haic_pilot_context
+from utils.haic_client import query_haic_benchmark as haic_query
 from io import BytesIO
 import tempfile
 from langchain_community.document_loaders import PyPDFLoader
@@ -3271,6 +3273,50 @@ def _build_summary_table(file_results: List[Dict]) -> List[Dict]:
     return table
 
 
+def _get_haic_user_context() -> Dict:
+    """Resolve HAIC pilot access from session email, groups, and policies."""
+    metadata = UserSessionManager.get_token_metadata() or {}
+    user_email = (
+        metadata.get("email")
+        or UserSessionManager.get_user_id()
+        or ""
+    )
+    return resolve_haic_pilot_context(
+        user_email=user_email,
+        groups=UserSessionManager.get_user_groups(),
+        policies=UserSessionManager.get_user_policies(),
+    )
+
+
+@cl.step(type="tool", name="HAIC Benchmark", show_input=False)
+async def query_haic_benchmark(
+    action: str,
+    configuration_id: Optional[int] = None,
+    result_id: Optional[int] = None,
+) -> Dict:
+    """
+    Read-only access to the HAIC Benchmark Suite for the current pilot user.
+    """
+    context = _get_haic_user_context()
+    if not context.get("has_access"):
+        return {
+            "success": False,
+            "error": (
+                "No HAIC benchmark configuration is mapped to your account. "
+                "Contact your pilot administrator if you expect access."
+            ),
+            "user_email": context.get("user_email"),
+        }
+
+    allowlist = context.get("configuration_ids") or []
+    return await haic_query(
+        action=action,
+        allowlist=allowlist,
+        configuration_id=configuration_id,
+        result_id=result_id,
+    )
+
+
 function_map = {
     "get_docs": get_docs,
     "get_minio_info": get_minio_info,
@@ -3293,5 +3339,6 @@ function_map = {
     "parse_pdf_from_minio": parse_pdf_from_minio,
     "plot_data": plot_data,
     "analyze_smart_cities_data": analyze_smart_cities_data,
-    "compare_smart_cities_files": compare_smart_cities_files
+    "compare_smart_cities_files": compare_smart_cities_files,
+    "query_haic_benchmark": query_haic_benchmark,
 }

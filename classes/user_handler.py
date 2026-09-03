@@ -330,6 +330,18 @@ class UserSessionManager:
         """Retrieve the user's roles from the session."""
         return cl.user_session.get("user_roles", [])
     
+    # User Groups Management (Keycloak groups from JWT)
+    @staticmethod
+    def set_user_groups(groups: list):
+        """Store the user's Keycloak groups from token claims in the session."""
+        cl.user_session.set("user_groups", groups)
+        logger.info(f"User groups stored: {groups}")
+
+    @staticmethod
+    def get_user_groups() -> list:
+        """Retrieve the user's Keycloak groups from the session."""
+        return cl.user_session.get("user_groups", [])
+
     # User Policies Management (MinIO access policies)
     @staticmethod
     def set_user_policies(policies: list):
@@ -378,6 +390,11 @@ class UserSessionManager:
             if isinstance(policies, list) and policies:
                 UserSessionManager.set_user_policies(policies)
                 logger.info(f"Extracted policies: {policies}")
+
+            groups = decoded.get("groups", [])
+            if isinstance(groups, list) and groups:
+                UserSessionManager.set_user_groups(groups)
+                logger.info(f"Extracted groups: {groups}")
             
             # Extract all roles (realm_access + resource_access)
             all_roles = []

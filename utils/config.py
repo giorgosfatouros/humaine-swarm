@@ -10,6 +10,11 @@ KUBEFLOW_HOST = os.environ.get("KUBEFLOW_HOST", "http://huanew-kubeflow.ddns.net
 # KUBEFLOW_USERNAME and KUBEFLOW_PASSWORD from env vars (optional fallback)
 # KUBEFLOW_NAMESPACE per-user from OAuth token
 
+# HAIC Benchmark Suite settings
+HAIC_BASE_URL = os.environ.get(
+    "HAIC_BASE_URL", "https://benchmark.humaine-horizon.eu/api"
+)
+
 # MinIO connection settings
 MINIO_ENDPOINT = os.environ.get("MINIO_ENDPOINT", "s3-minio.humaine-horizon.eu")
 MINIO_SECURE = os.environ.get("MINIO_SECURE", "true").lower() == "true"

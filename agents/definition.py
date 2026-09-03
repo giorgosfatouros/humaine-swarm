@@ -4,18 +4,45 @@ functions = [
         "type": "function",
         "function": {
             "name": "get_docs", 
-            "description": "Retrieve information from the HumAIne RAG knowledge base: platform integration and Training Centre deliverables, Active Learning (modAL, HumAL ticketing pilot), XAI (humaine-explainerdashboard, SHAP/LIME), HumAIne Swarm API and usage, Kubeflow/project documentation, and HAIC evaluation framework content when indexed (HAIC Benchmark Suite, logging schema haic.decisions.v1, metrics F/D/HCL/Tr/A/S/EL/EfficiencyScore and interpretation).",
+            "description": "Retrieve static project documentation from the HumAIne RAG knowledge base: platform integration and Training Centre deliverables, Active Learning (modAL, HumAL), XAI (humaine-explainerdashboard, SHAP/LIME), HumAIne Swarm API and usage, and Kubeflow/MLOps project docs. For HAIC, use only for conceptual framework questions (metric definitions, logging schema theory, interpretation guides). Do NOT use for the logged-in user's stored HAIC evaluation results, scores, or evaluation list — use query_haic_benchmark instead.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "query": {
                         "type": "string",
-                        "description": "Search query for indexed HumAIne documentation. Use for project deliverables, Active Learning, XAI and explainer dashboard, Swarm assistant capabilities, Kubeflow/MLOps project docs, HAIC metrics/logging/benchmark suite, and hackathon AL+XAI technical questions."
+                        "description": "Search query for indexed HumAIne documentation. Use for project deliverables, Active Learning, XAI, Swarm capabilities, Kubeflow docs, and conceptual HAIC framework questions. Do NOT use when the user asks for their own HAIC scores, evaluations, or live benchmark results."
                     },
                 },
                 "required": ["query"],
                 "additionalProperties": False,
             },
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "query_haic_benchmark",
+            "description": "Fetch LIVE stored evaluation results from the HAIC Benchmark Suite API for the authenticated pilot user — not MinIO buckets and not documentation. Use when the user asks: find my HAIC results, my HAIC, my evaluations, my scores, my results, my Trust, my HCL, HAIC benchmark results, evaluation status, or model-version comparisons. Do NOT search MinIO for HAIC data. Default actions: list_evaluations for 'what evaluations do I have'; get_holistic for scores, Trust/HCL, or 'find my HAIC results'; list_results then get_result for a specific run. For conceptual HAIC framework questions only, use get_docs instead.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["list_evaluations", "list_results", "get_holistic", "get_result"],
+                        "description": "list_evaluations: this user's HAIC configs; list_results: stored result runs; get_holistic: aggregate + per-model HAIC metrics (Trust, HCL, F, D, etc.); get_result: one result_id from list_results"
+                    },
+                    "configuration_id": {
+                        "type": "integer",
+                        "description": "HAIC evaluation configuration id. Omit when the user has a single mapped configuration; otherwise call list_evaluations first."
+                    },
+                    "result_id": {
+                        "type": "integer",
+                        "description": "Required for get_result — id from list_results."
+                    }
+                },
+                "required": ["action"],
+                "additionalProperties": False
+            }
         }
     },
     {
@@ -388,7 +415,7 @@ functions = [
         "type": "function",
         "function": {
             "name": "list_user_buckets",
-            "description": "List all available storage buckets with information about what data, ML pipelines and artifacts they contain. Returns data_files dict organized by type (pickle, json, pdf) with EXACT file paths - USE THESE EXACT PATHS when calling other tools like analyze_smart_cities_data or compare_smart_cities_files. Do not modify or guess file paths.",
+            "description": "List MinIO storage buckets for ML pipeline artifacts, pilot data files (pickle/json/pdf), and Kubeflow outputs. Returns data_files dict organized by type with EXACT file paths for tools like analyze_smart_cities_data. Do NOT use for HAIC Benchmark Suite evaluation results or HAIC metric scores — those come from query_haic_benchmark, not MinIO.",
             "parameters": {
                 "type": "object",
                 "properties": {

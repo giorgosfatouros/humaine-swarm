@@ -14,7 +14,7 @@ The prompt is loaded in [agents/code.py](../../agents/code.py) via **`read_promp
 
 ## Tool definitions
 
-[agents/definition.py](../../agents/definition.py) exports a list **`functions`**: OpenAI function-calling schemas (`type`, `function.name`, `function.description`, `function.parameters`). This list is imported in [utils/config.py](../../utils/config.py) and passed as **`settings["tools"]`** to every `client.chat.completions.create()` call. The model uses these schemas to decide when and how to call tools.
+[agents/definition.py](../../agents/definition.py) exports a list **`functions`**: OpenAI function-calling schemas (`type`, `function.name`, `function.description`, `function.parameters`). This list is imported in [utils/config.py](../../utils/config.py) and passed as **`settings["tools"]`** to every `client.responses.create()` call. The model uses these schemas to decide when and how to call tools.
 
 ## Tool implementation
 
@@ -52,6 +52,9 @@ graph LR
     subgraph Viz [Visualization]
         plot_data[plot_data]
     end
+    subgraph HAIC [HAIC Benchmark Suite]
+        query_haic[query_haic_benchmark]
+    end
 ```
 
 ### RAG
@@ -82,6 +85,12 @@ Kubeflow tools use **`get_user_kubeflow_client()`** in code.py: it prefers sessi
 
 - **plot_data(data, chart_type?, title?, x_label?, y_label?, x_column?, y_column?, color_column?, display?, size?)**  
   Builds a Plotly figure in code.py (`_determine_chart_type`, `_create_plotly_figure`), serializes to JSON, returns `{figure_json, chart_type, title, display, size, success}`. [app.py](../../app.py) detects `plot_data` results and attaches a **`cl.Plotly`** element to the message so the chart renders in the UI.
+
+### HAIC Benchmark Suite
+
+- **query_haic_benchmark(action, configuration_id?, result_id?)**  
+  Read-only access to the [HAIC Benchmark Suite](https://benchmark.humaine-horizon.eu/) for the logged-in pilot user. Pilot identity is resolved from JWT email, Keycloak `groups`, and MinIO `policy` claims via a static map in [utils/haic_pilot_map.py](../../utils/haic_pilot_map.py). HTTP calls and response projection live in [utils/haic_client.py](../../utils/haic_client.py).  
+  **Actions**: `list_evaluations`, `list_results`, `get_holistic`, `get_result`. The tool enforces a hard allowlist on `configuration_id` so users cannot query other pilots' data. Large HAIC payloads (session timeseries, thousands of warnings) are projected to compact metric summaries before returning to the LLM.
 
 ## RAG pipeline (index side)
 

@@ -12,7 +12,9 @@ from classes.user_handler import UserSessionManager
 from starters import set_starters
 import json
 import logging
-from agents.code import function_map, read_prompt
+from agents.code import function_map, read_prompt, query_haic_benchmark
+from utils.haic_routing import detect_haic_live_query
+from utils.haic_client import format_haic_result_markdown
 from utils.helper_functions import setup_logging
 from utils.config import settings
 from utils.responses_adapter import (
@@ -330,6 +332,17 @@ async def main(message: cl.Message):
     # Get the message history and append the new user message
     message_history = UserSessionManager.get_message_history()
     message_history.append({"role": "user", "content": message.content})
+
+    haic_action = detect_haic_live_query(message.content)
+    if haic_action:
+        logger.info(f"HAIC pre-router: action={haic_action} for user message")
+        result = await query_haic_benchmark(action=haic_action)
+        reply = format_haic_result_markdown(result)
+        msg.content = reply
+        message_history.append({"role": "assistant", "content": reply})
+        await msg.send()
+        UserSessionManager.set_message_history(message_history)
+        return
 
     stream = await create_response_stream(message_history)
 

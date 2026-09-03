@@ -24,5 +24,6 @@ Quick lookup for developers. Implementation: [agents/code.py](../../agents/code.
 | get_pipeline_id | Resolve pipeline ID by name | name | get_pipeline_id | Kubeflow client |
 | parse_pdf_from_minio | Download, extract text, optional summarization | bucket_name, object_path | parse_pdf_from_minio | MinIO client (user); LangChain for summarization |
 | plot_data | Build Plotly chart from data | data | plot_data | None (Plotly); app.py renders result |
+| query_haic_benchmark | Fetch pilot's HAIC evaluation results | action | query_haic_benchmark | HAIC API (`HAIC_BASE_URL`); pilot map in utils/haic_pilot_map.py |
 
-**Dependency key**: “MinIO client (user)” = `get_user_minio_client()` → UserSessionManager MinIO credentials. “Kubeflow client” = `get_user_kubeflow_client()` (Dex; may prompt for credentials). “Pinecone index” = LlamaIndex VectorStoreIndex over Pinecone (PINECONE_INDEX).
+**Dependency key**: “MinIO client (user)” = `get_user_minio_client()` → UserSessionManager MinIO credentials. “Kubeflow client” = `get_user_kubeflow_client()` (Dex; may prompt for credentials). “Pinecone index” = LlamaIndex VectorStoreIndex over Pinecone (PINECONE_INDEX). “HAIC API” = public read API at `HAIC_BASE_URL`; access scoped per user via static pilot map.

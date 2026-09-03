@@ -73,3 +73,19 @@ You can optionally specify chunk size, overlap, and summary type (e.g. map_reduc
 | Chart from data | “Plot this data as a bar chart: …”; “Create a line chart of [data]”; “Show a pie chart for [data]” |
 
 The assistant can build line, bar, pie, scatter, or histogram charts from structured data you provide (or from metrics it has retrieved) and display them inline.
+
+---
+
+## HAIC Benchmark Suite
+
+If your pilot account is mapped in Keycloak (group / policy) to a HAIC evaluation configuration, you can ask about **your stored HAIC benchmark results** on the HumAIne platform.
+
+| Capability | Example prompts |
+|------------|------------------|
+| List evaluations | "What HAIC evaluations do I have?" |
+| List results | "Show my HAIC benchmark runs" |
+| Holistic summary | "What are my HAIC scores?" ; "Summarize my Trust and HCL metrics" |
+| Model comparison | "Compare my HAIC results across AI model versions" |
+| Single run | "What is the Trust Proxy for my latest HAIC result?" |
+
+For general HAIC framework documentation (metric definitions, logging schema), the assistant uses project documentation. For **your pilot's live numbers**, it queries the HAIC platform directly. Pilots without uploaded session data (e.g. pending evaluations) will get an honest "no results yet" response.
