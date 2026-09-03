@@ -48,4 +48,7 @@ fi
 echo "==> docker push ${HUB_TAG}"
 docker push "$HUB_TAG"
 
+echo "==> docker push ${REPO}:latest"
+docker push "${REPO}:latest"
+
 echo "==> Push complete. Digest above — share with ops before they pull."
