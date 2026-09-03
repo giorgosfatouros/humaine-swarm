@@ -6,7 +6,7 @@
 |-----------|----------|------|
 | Chainlit UI | Chainlit framework | Chat interface; OAuth; session; message display |
 | Application entrypoint | [app.py](../../app.py) | `@cl.on_message`, `@cl.on_chat_start`, `@cl.oauth_callback`; orchestrates message handling and stream processing |
-| OpenAI client | app.py, agents/code.py | Streaming completions with tool calls; LLM for RAG (optional) |
+| OpenAI client | app.py, agents/code.py | Responses API streaming with tool calls; Chat Completions for RAG query optimization |
 | Agent tools | [agents/code.py](../../agents/code.py) | `function_map`: name → async callable; all tool implementations |
 | Tool definitions | [agents/definition.py](../../agents/definition.py) | OpenAI function schemas passed in `settings["tools"]` |
 | System prompt | [agents/system.md](../../agents/system.md) | Loaded via `read_prompt('system')` in agents/code.py |
@@ -14,7 +14,7 @@
 | Config | [utils/config.py](../../utils/config.py) | Env-derived settings; OpenAI `settings` dict |
 | Helpers | [utils/helper_functions.py](../../utils/helper_functions.py) | MinIO client, Kubeflow client (Dex), STS credential fetch, namespace extraction |
 
-Integrations: **Kubeflow** (pipelines, runs, experiments), **MinIO** (buckets, artifacts; user-scoped via STS), **Pinecone** (vector index for RAG), **Keycloak** (OAuth provider).
+Integrations: **Kubeflow** (pipelines, runs, experiments), **MinIO** (buckets, artifacts; user-scoped via STS), **Pinecone** (vector index for RAG), **Keycloak** (OAuth provider), **HAIC Benchmark Suite** (pilot evaluation results via `query_haic_benchmark`).
 
 ## Component diagram
 

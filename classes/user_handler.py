@@ -1,7 +1,8 @@
 import tiktoken
 import chainlit as cl
 from utils.helper_functions import setup_logging
-from utils.config import settings, MAX_INPUT_TOKENS
+from utils.config import MAX_INPUT_TOKENS
+from utils.responses_adapter import item_token_estimate
 import logging
 import uuid
 import os
@@ -73,21 +74,25 @@ class UserSessionManager:
 
     @staticmethod
     def set_message_history(message_history):
-        encoding = tiktoken.encoding_for_model('gpt-4o-mini')
+        encoding = tiktoken.get_encoding("o200k_base")
         total_tokens = 0
         truncated_messages = []
-        system_message = message_history[0] if message_history and message_history[0]['role'] == 'system' else None
+        system_message = (
+            message_history[0]
+            if message_history and message_history[0].get("role") == "system"
+            else None
+        )
 
         for message in reversed(message_history[1:]):
-            message_tokens = len(encoding.encode(message.get('content', '') or ''))
+            message_tokens = item_token_estimate(message, encoding)
             total_tokens += message_tokens
             if total_tokens > MAX_INPUT_TOKENS:
                 break
             truncated_messages.insert(0, message)
-        
+
         if system_message:
             truncated_messages.insert(0, system_message)
-        
+
         cl.user_session.set("message_history", truncated_messages)
 
     @staticmethod

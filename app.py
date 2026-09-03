@@ -15,6 +15,12 @@ import logging
 from agents.code import function_map, read_prompt
 from utils.helper_functions import setup_logging
 from utils.config import settings
+from utils.responses_adapter import (
+    build_responses_input,
+    extract_instructions,
+    make_function_call,
+    make_function_call_output,
+)
 from utils.keycloak_header_auth import (
     claims_to_display_name,
     claims_to_identifier,
@@ -165,162 +171,147 @@ async def on_chat_resume(thread: ThreadDict):
     thread_id = thread['id']
     logger.info(f"Thread ID on resume: {thread_id}")
 
-# Process assistant's response stream and handle tool calls
-async def process_stream(stream, message_history, msg):
-    tool_calls_data = []
+async def create_response_stream(message_history):
+    request_kwargs = dict(settings)
+    instructions = extract_instructions(message_history)
+    if instructions:
+        request_kwargs["instructions"] = instructions
+    return await client.responses.create(
+        input=build_responses_input(message_history),
+        **request_kwargs,
+    )
+
+
+# Process assistant's response stream and handle tool calls (Responses API)
+async def process_responses_stream(stream, message_history, msg):
+    tool_calls_by_item_id = {}
     text_content = ""
-    current_tool_call = None
 
-    async for part in stream:
-        delta = part.choices[0].delta
+    async for event in stream:
+        event_type = getattr(event, "type", None)
 
-        if delta.tool_calls:
-            tool_call = delta.tool_calls[0]  # Handle the first tool call in the list
-            logger.info(f"Tool call: {tool_call}")
-            
-            if tool_call.index is not None and tool_call.function.name:  # New tool call starting
-                current_tool_call = {
-                    "id": tool_call.id,
-                    "type": tool_call.type,
-                    "function": {
-                        "name": tool_call.function.name,
-                        "arguments": ""
-                    }
+        if event_type == "response.output_text.delta":
+            text_content += event.delta
+            await msg.stream_token(event.delta)
+        elif event_type == "response.output_item.added":
+            item = event.item
+            if getattr(item, "type", None) == "function_call":
+                tool_calls_by_item_id[item.id] = {
+                    "call_id": item.call_id,
+                    "name": item.name,
+                    "arguments": item.arguments or "",
+                    "item_id": item.id,
                 }
-                tool_calls_data.append(current_tool_call)
-            
-            if current_tool_call and tool_call.function.arguments:
-                current_tool_call["function"]["arguments"] += tool_call.function.arguments
+        elif event_type == "response.function_call_arguments.delta":
+            tool_call = tool_calls_by_item_id.get(event.item_id)
+            if tool_call:
+                tool_call["arguments"] += event.delta
+        elif event_type == "response.function_call_arguments.done":
+            tool_call = tool_calls_by_item_id.get(event.item_id)
+            if tool_call:
+                tool_call["arguments"] = event.arguments
 
-        elif delta.content:
-            text_content += delta.content
-            await msg.stream_token(delta.content)
+    if text_content:
+        msg.content = (msg.content or "") + text_content
 
-    # Process any final completed tool calls
     valid_tool_calls = []
-    for tool_call in tool_calls_data:
+    for tool_call in tool_calls_by_item_id.values():
         try:
-            args = tool_call["function"]["arguments"]
-            if args.strip() and args[-1] == "}":  # Check if arguments string is complete
-                json.loads(args)  # Validate JSON
+            args = tool_call["arguments"]
+            if args.strip() and args[-1] == "}":
+                json.loads(args)
                 valid_tool_calls.append(tool_call)
         except json.JSONDecodeError as e:
             logger.error(f"Invalid JSON in tool call: {e}")
 
-    # If we have valid tool calls, process them in parallel
-    if valid_tool_calls:
-        logger.info(f"Processing {len(valid_tool_calls)} function calls concurrently")
-        
-        # Define a function to process each tool call
-        async def call_function(tool_call):
-            try:
-                function_name = tool_call["function"]["name"]
-                arguments = json.loads(tool_call["function"]["arguments"])
-                
-                if function_name not in function_map:
-                    logger.warning(f"Unknown function: {function_name}")
-                    return None
-                
-                logger.info(f"Executing function: {function_name} with arguments: {arguments}")
-                
-                func = function_map[function_name]
-                result = await func(**arguments) if asyncio.iscoroutinefunction(func) else func(**arguments)
-                
-                UserSessionManager.increment_function_call_count()
-                
-                # Handle visualizations
-                try:
-                    # Initialize elements if they don't exist yet
-                    if not hasattr(msg, 'elements') or msg.elements is None:
-                        msg.elements = []
-                    
-                    # Handle plot_data tool results
-                    if function_name == "plot_data" and isinstance(result, dict):
-                        if result.get("success") and "figure_json" in result:
-                            try:
-                                # Parse the JSON figure back to a Plotly figure object
-                                figure_json = result["figure_json"]
-                                fig = pio.from_json(figure_json)
-                                
-                                # Get display and size settings
-                                display = result.get("display", "inline")
-                                size = result.get("size", "medium")
-                                chart_type = result.get("chart_type", "chart")
-                                title = result.get("title", "Data Visualization")
-                                
-                                # Create Plotly element
-                                plotly_element = cl.Plotly(
-                                    name=f"{chart_type}_{title}",
-                                    figure=fig,
-                                    display=display,
-                                    size=size
-                                )
-                                msg.elements.append(plotly_element)
-                                logger.info(f"Added Plotly chart: {chart_type} - {title}")
-                            except Exception as plot_error:
-                                logger.error(f"Error creating Plotly element: {str(plot_error)}")
-                        
-                    # if function_name == "get_stock_prices":
-                    #     figure_data = await get_prices_figure(result)
-                    #     if figure_data:
-                    #         msg.elements.append(cl.Plotly(name="chart", figure=figure_data, display="inline"))
-                    # elif function_name == "get_historical_rankings":
-                    #     figure_data = await get_rankings_figure(result['data'])
-                    #     if figure_data:
-                    #         msg.elements.append(cl.Plotly(name="chart", figure=figure_data, display="inline"))
-                    # elif function_name == "get_fundamentals":
-                    #     figure_data_list = await get_fundamentals_figure(result)
-                    #     if figure_data_list:
-                    #         for i, figure_data in enumerate(figure_data_list):
-                    #             msg.elements.append(cl.Plotly(name=f"chart_{i}", figure=figure_data, display="inline"))
-                except Exception as e:
-                    logger.error(f"Error creating figure for {function_name}: {str(e)}")
-                
-                return {
-                    "role": "function", 
-                    "name": function_name, 
-                    "content": json.dumps(result)
-                }
-            except Exception as e:
-                logger.error(f"Error in {tool_call['function']['name']}: {str(e)}")
-                return None
-        
-        # Execute all function calls concurrently
-        function_responses = await asyncio.gather(
-            *(call_function(tool_call) for tool_call in valid_tool_calls)
-        )
-        
-        # Filter out any None responses (from errors)
-        function_responses = [resp for resp in function_responses if resp is not None]
-        
-        # Add all responses to message history
-        message_history.extend(function_responses)
-        UserSessionManager.set_message_history(message_history)
-        
-        # Make a follow-up call to process the function results
-        if function_responses:
-            # Store any elements/visualizations from previous calls
-            elements = msg.elements
-            
-            # Create a follow-up message only if we have elements to display
-            # Otherwise reuse the existing message
-            if elements and len(elements) > 0:
-                follow_up_msg = cl.Message(content="")
-                follow_up_msg.elements = elements.copy()
-                await follow_up_msg.send()
-            else:
-                follow_up_msg = msg
-            
-            follow_up_stream = await client.chat.completions.create(
-                messages=message_history,
-                **settings
-            )
-            
-            # Reset tool call tracking for the next stream
-            await process_stream(follow_up_stream, message_history, follow_up_msg)
+    if not valid_tool_calls:
+        return
 
-# Legacy function - no longer used (replaced by concurrent processing in process_stream)
-# Kept for reference but can be removed if not needed
+    logger.info(f"Processing {len(valid_tool_calls)} function calls concurrently")
+
+    async def call_function(tool_call):
+        try:
+            function_name = tool_call["name"]
+            arguments = json.loads(tool_call["arguments"])
+
+            if function_name not in function_map:
+                logger.warning(f"Unknown function: {function_name}")
+                return None
+
+            logger.info(f"Executing function: {function_name} with arguments: {arguments}")
+
+            func = function_map[function_name]
+            result = await func(**arguments) if asyncio.iscoroutinefunction(func) else func(**arguments)
+
+            UserSessionManager.increment_function_call_count()
+
+            try:
+                if not hasattr(msg, "elements") or msg.elements is None:
+                    msg.elements = []
+
+                if function_name == "plot_data" and isinstance(result, dict):
+                    if result.get("success") and "figure_json" in result:
+                        try:
+                            figure_json = result["figure_json"]
+                            fig = pio.from_json(figure_json)
+
+                            display = result.get("display", "inline")
+                            size = result.get("size", "medium")
+                            chart_type = result.get("chart_type", "chart")
+                            title = result.get("title", "Data Visualization")
+
+                            plotly_element = cl.Plotly(
+                                name=f"{chart_type}_{title}",
+                                figure=fig,
+                                display=display,
+                                size=size,
+                            )
+                            msg.elements.append(plotly_element)
+                            logger.info(f"Added Plotly chart: {chart_type} - {title}")
+                        except Exception as plot_error:
+                            logger.error(f"Error creating Plotly element: {str(plot_error)}")
+            except Exception as e:
+                logger.error(f"Error creating figure for {function_name}: {str(e)}")
+
+            return (
+                make_function_call(
+                    tool_call["call_id"],
+                    function_name,
+                    tool_call["arguments"],
+                ),
+                make_function_call_output(tool_call["call_id"], result),
+            )
+        except Exception as e:
+            logger.error(f"Error in {tool_call['name']}: {str(e)}")
+            return None
+
+    function_results = await asyncio.gather(
+        *(call_function(tool_call) for tool_call in valid_tool_calls)
+    )
+
+    history_items = []
+    for result in function_results:
+        if result is None:
+            continue
+        function_call_item, function_output_item = result
+        history_items.extend([function_call_item, function_output_item])
+
+    if not history_items:
+        return
+
+    message_history.extend(history_items)
+    UserSessionManager.set_message_history(message_history)
+
+    elements = msg.elements
+    if elements and len(elements) > 0:
+        follow_up_msg = cl.Message(content="")
+        follow_up_msg.elements = elements.copy()
+        await follow_up_msg.send()
+    else:
+        follow_up_msg = msg
+
+    follow_up_stream = await create_response_stream(message_history)
+    await process_responses_stream(follow_up_stream, message_history, follow_up_msg)
 
 
 # Main function that handles user messages
@@ -340,14 +331,9 @@ async def main(message: cl.Message):
     message_history = UserSessionManager.get_message_history()
     message_history.append({"role": "user", "content": message.content})
 
-    # Create the OpenAI chat completion with the message history
-    completion = await client.chat.completions.create(messages=cl.chat_context.to_openai(), **settings)
+    stream = await create_response_stream(message_history)
 
-    # Copy the message history for further use
-    temp_history = message_history.copy()
-
-    # Process the completion stream, attaching it to the current session and message
-    await process_stream(completion, message_history, msg)
+    await process_responses_stream(stream, message_history, msg)
     if msg.content.strip():
         message_history.append({"role": "assistant", "content": msg.content})
         

@@ -29,7 +29,7 @@ import plotly.graph_objects as go
 import pandas as pd
 
 # Set up the LLM
-Settings.llm  = OpenAI(model=LLM_MODEL, max_tokens=LLM_MAX_TOKENS, temperature=LLM_TEMPERATURE)
+Settings.llm  = OpenAI(model=LLM_MODEL)
 Settings.embed_model = OpenAIEmbedding(model=EMBEDDING_MODEL)
 logger = setup_logging('CODE', level=logging.INFO)
 client = AsyncOpenAI()
@@ -324,8 +324,8 @@ async def optimize_query(search_query: str) -> str:
             {"role": "system", "content": "You are an assistant expert in crafting prompts for LLMs in EU-funded research projects. Your responses must be a valid JSON."},
             {"role": "user", "content": prompt}
         ],
-        max_tokens=150,
-        temperature=0
+        # max_tokens=150,
+        # temperature=0
     )
     # Extract the expanded query from the response
     if not response or not response.choices or not response.choices[0].message:
@@ -343,7 +343,7 @@ async def optimize_query(search_query: str) -> str:
 
 
 # RAG functions
-@cl.step(type="tool", name="Documentation", show_input=False)
+@cl.step(type="tool", name="Project documentation", show_input=False)
 async def get_docs(query: str):
     # optimized_query = await optimize_query(query)
     retriever_humaine = VectorIndexRetriever(index=index, similarity_top_k=8)
@@ -1946,8 +1946,8 @@ async def parse_pdf_from_minio(
                     
                     llm = ChatOpenAI(
                         model=LLM_MODEL,
-                        temperature=LLM_TEMPERATURE,
-                        max_tokens=LLM_MAX_TOKENS
+                        # temperature=LLM_TEMPERATURE,
+                        # max_tokens=LLM_MAX_TOKENS
                     )
                     
                     # Choose summarization chain based on summary_type
