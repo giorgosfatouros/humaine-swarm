@@ -184,6 +184,17 @@ async def create_response_stream(message_history):
     )
 
 
+async def finalize_assistant_message(msg: cl.Message) -> None:
+    has_content = bool(msg.content and msg.content.strip())
+    has_elements = bool(getattr(msg, "elements", None))
+    if not has_content and not has_elements:
+        return
+    if getattr(msg, "streaming", False):
+        await msg.update()
+    else:
+        await msg.send()
+
+
 # Process assistant's response stream and handle tool calls (Responses API)
 async def process_responses_stream(stream, message_history, msg):
     tool_calls_by_item_id = {}
@@ -315,6 +326,10 @@ async def process_responses_stream(stream, message_history, msg):
     follow_up_stream = await create_response_stream(message_history)
     await process_responses_stream(follow_up_stream, message_history, follow_up_msg)
 
+    if follow_up_msg is not msg:
+        await finalize_assistant_message(follow_up_msg)
+        msg.elements = []
+
 
 # Main function that handles user messages
 @cl.on_message
@@ -350,10 +365,7 @@ async def main(message: cl.Message):
     if msg.content.strip():
         message_history.append({"role": "assistant", "content": msg.content})
         
-    # Send the message at the end if it has content or elements
-    has_elements = hasattr(msg, 'elements') and msg.elements and len(msg.elements) > 0
-    if msg.content.strip() or has_elements:
-        await msg.send()
+    await finalize_assistant_message(msg)
 
     # Save the updated message history in the session
     UserSessionManager.set_message_history(message_history)
