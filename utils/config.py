@@ -1,6 +1,4 @@
-from agents.definition import functions
 import os
-from utils.responses_adapter import convert_tools_for_responses
 
 # Kubeflow connection settings (base URL only - user credentials via OAuth)
 KUBEFLOW_HOST = os.environ.get("KUBEFLOW_HOST", "http://huanew-kubeflow.ddns.net/pipeline")
@@ -42,7 +40,6 @@ MAX_INPUT_TOKENS = 2000
 settings = {
     "model": LLM_MODEL,
     "parallel_tool_calls": True,
-    "tools": convert_tools_for_responses(functions),
     "tool_choice": "auto",
     "stream": True,
     "reasoning": {"effort": LLM_REASONING_EFFORT},
