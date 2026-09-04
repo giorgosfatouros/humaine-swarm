@@ -4,7 +4,7 @@ functions = [
         "type": "function",
         "function": {
             "name": "get_docs", 
-            "description": "Retrieve static project documentation from the HumAIne RAG knowledge base: platform integration and Training Centre deliverables, Active Learning (modAL, HumAL), XAI (humaine-explainerdashboard, SHAP/LIME), HumAIne Swarm API and usage, and Kubeflow/MLOps project docs. For HAIC, use only for conceptual framework questions (metric definitions, logging schema theory, interpretation guides). Do NOT use for the logged-in user's stored HAIC evaluation results, scores, or evaluation list — use query_haic_benchmark instead.",
+            "description": "Retrieve static project documentation from the HumAIne RAG knowledge base: platform integration and Training Centre deliverables, Active Learning (modAL, HumAL), XAI (humaine-explainerdashboard, SHAP/LIME), HumAIne Swarm API and usage, and Kubeflow/MLOps project docs. For HAIC, use only for conceptual framework questions (metric definitions, logging schema theory, interpretation guides). Do NOT use for Smart Manufacturing factory-floor machine graph facts (machines, availability, energy, manufacturers, drilling/sawing specs) — use query_manufacturing_knowledge instead. Do NOT use for the logged-in user's stored HAIC evaluation results, scores, or evaluation list — use query_haic_benchmark instead.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -41,6 +41,57 @@ functions = [
                     }
                 },
                 "required": ["action"],
+                "additionalProperties": False
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "query_manufacturing_knowledge",
+            "description": "Search the Smart Manufacturing pilot knowledge graph for structured machine and factory-floor facts — not HumAIne documentation and not HAIC benchmark scores. Use when the user asks about manufacturing machines, availability, energy consumption, manufacturers, drilling/sawing/circle-cutting capabilities, comparisons, recommendations, diagnostics, or planning grounded in the graph. Example questions: list all drilling machines; which solarsprint 2000 instances are available; energy consumption of ecodrive elite; who manufactures Titancraft Pro-1; compare drilling specs of megaforce turbo and titancraftpro1; drilling machines capable of holes larger than 5mm. Entity types in the graph: Asset, Availability, CircleCutting, Drilling, EnergyConsumption, Manufacturer, Sawing. Out of scope: maintenance history, cost data, predictive failure forecasts, other HumAIne pilots, general platform docs. For follow-up on one entity after relationships_truncated, pass entity_id from a prior result (raw Neo4j id). Cite human-readable names in answers, not internal ids.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Natural-language search over the manufacturing knowledge graph. Required unless entity_id is provided."
+                    },
+                    "entity_id": {
+                        "type": "string",
+                        "description": "Optional raw Neo4j element ID from a prior search result for follow-up entity lookup via GET /entity/{id}. Omit for normal search."
+                    },
+                    "n": {
+                        "type": "integer",
+                        "description": "Maximum entities to return (default 10, max 50).",
+                        "default": 10
+                    },
+                    "entity_types": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional label filter, e.g. [\"Drilling\"]."
+                    },
+                    "min_score": {
+                        "type": "number",
+                        "description": "Optional minimum relevance score (rerank_score if present, else similarity score)."
+                    },
+                    "include_relationships": {
+                        "type": "boolean",
+                        "description": "Include first-degree relationships per entity (default true).",
+                        "default": True
+                    },
+                    "include_properties": {
+                        "type": "boolean",
+                        "description": "Include entity properties (default true).",
+                        "default": True
+                    },
+                    "max_relationships": {
+                        "type": "integer",
+                        "description": "Cap relationships per entity (default 20; 0 = uncapped).",
+                        "default": 20
+                    }
+                },
+                "required": [],
                 "additionalProperties": False
             }
         }

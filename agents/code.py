@@ -21,6 +21,7 @@ from utils.helper_functions import get_kubeflow_client
 from classes.user_handler import UserSessionManager
 from utils.haic_pilot_map import resolve_haic_pilot_context
 from utils.haic_client import query_haic_benchmark as haic_query
+from utils.semantic_inference_client import query_manufacturing_knowledge as manufacturing_query
 from io import BytesIO
 import tempfile
 from langchain_community.document_loaders import PyPDFLoader
@@ -3317,6 +3318,32 @@ async def query_haic_benchmark(
     )
 
 
+@cl.step(type="tool", name="Manufacturing Knowledge", show_input=False)
+async def query_manufacturing_knowledge(
+    query: Optional[str] = None,
+    entity_id: Optional[str] = None,
+    n: int = 10,
+    entity_types: Optional[List[str]] = None,
+    min_score: Optional[float] = None,
+    include_relationships: bool = True,
+    include_properties: bool = True,
+    max_relationships: int = 20,
+) -> Dict:
+    """
+    Structured semantic search over the Smart Manufacturing pilot knowledge graph.
+    """
+    return await manufacturing_query(
+        query=query,
+        entity_id=entity_id,
+        n=n,
+        entity_types=entity_types,
+        min_score=min_score,
+        include_relationships=include_relationships,
+        include_properties=include_properties,
+        max_relationships=max_relationships,
+    )
+
+
 function_map = {
     "get_docs": get_docs,
     "get_minio_info": get_minio_info,
@@ -3341,4 +3368,5 @@ function_map = {
     "analyze_smart_cities_data": analyze_smart_cities_data,
     "compare_smart_cities_files": compare_smart_cities_files,
     "query_haic_benchmark": query_haic_benchmark,
+    "query_manufacturing_knowledge": query_manufacturing_knowledge,
 }

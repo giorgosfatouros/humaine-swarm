@@ -15,6 +15,11 @@ HAIC_BASE_URL = os.environ.get(
     "HAIC_BASE_URL", "https://benchmark.humaine-horizon.eu/api"
 )
 
+# Smart Manufacturing semantic-inference service (JSI)
+SEMANTIC_INFERENCE_BASE_URL = os.environ.get(
+    "SEMANTIC_INFERENCE_BASE_URL", "http://atena.ijs.si:5008"
+)
+
 # MinIO connection settings
 MINIO_ENDPOINT = os.environ.get("MINIO_ENDPOINT", "s3-minio.humaine-horizon.eu")
 MINIO_SECURE = os.environ.get("MINIO_SECURE", "true").lower() == "true"
