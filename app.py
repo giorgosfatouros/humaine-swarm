@@ -7,6 +7,7 @@ from openai import AsyncOpenAI
 import chainlit as cl
 from chainlit import User
 from chainlit.input_widget import MultiSelect
+from chainlit.data.sql_alchemy import SQLAlchemyDataLayer
 from starlette.datastructures import Headers
 
 from classes.user_handler import UserSessionManager
@@ -26,6 +27,12 @@ from agents.tool_packs import (
     multiselect_items,
     resolve_enabled_pack_ids,
     update_message_history_system_prompt,
+)
+from utils.chainlit_db import ensure_chainlit_sqlite_schema, get_chainlit_conninfo
+from utils.chat_persistence import (
+    needs_history_rebuild,
+    rebuild_llm_history_from_thread,
+    refresh_oauth_for_user,
 )
 from utils.haic_routing import detect_haic_live_query
 from utils.haic_client import format_haic_result_markdown
@@ -53,6 +60,13 @@ logger = setup_logging('CHAT', level=logging.ERROR)
 logging.getLogger("httpx").setLevel("WARNING")
 
 client = AsyncOpenAI()
+
+
+@cl.data_layer
+def get_data_layer():
+    conninfo = get_chainlit_conninfo()
+    ensure_chainlit_sqlite_schema(conninfo)
+    return SQLAlchemyDataLayer(conninfo=conninfo)
 
 
 def get_enabled_pack_ids() -> list:
@@ -163,34 +177,8 @@ async def start_chat():
     user = cl.user_session.get("user")
     UserSessionManager.set_user_id(user.identifier)
 
-    # Store OAuth token if available
-    if user.metadata and "oauth_token" in user.metadata:
-        UserSessionManager.set_oauth_token(user.metadata["oauth_token"])
-        logger.info(f"Stored OAuth token for user {user.identifier}")
-
-        try:
-            await UserSessionManager.fetch_and_store_minio_credentials()
-            logger.info(f"Successfully fetched MinIO credentials for user {user.identifier}")
-        except Exception as e:
-            error_msg = str(e)
-            logger.error(f"Failed to fetch MinIO credentials: {error_msg}")
-
-            if "expired" in error_msg.lower() or "token is expired" in error_msg.lower():
-                logger.warning("OAuth token expired on chat start - clearing session to force logout")
-                UserSessionManager.clear_session()
-                await cl.Message(
-                    content="Your session has expired. Please refresh the page to log in again.",
-                    author="System"
-                ).send()
-                return
-
-        try:
-            UserSessionManager.extract_and_store_namespace()
-            logger.info(f"Extracted Kubeflow namespace for user {user.identifier}")
-            UserSessionManager.extract_and_store_token_info()
-            logger.info(f"Extracted comprehensive token info for user {user.identifier}")
-        except Exception as e:
-            logger.error(f"Failed to extract token information: {str(e)}")
+    if not await refresh_oauth_for_user(user):
+        return
 
     pilot_context = _get_user_pilot_context()
     enabled_packs = get_default_enabled_pack_ids(pilot_context)
@@ -220,8 +208,32 @@ async def on_settings_update(settings: dict):
 
 @cl.on_chat_resume
 async def on_chat_resume(thread: ThreadDict):
-    thread_id = thread['id']
-    logger.info(f"Thread ID on resume: {thread_id}")
+    user = cl.user_session.get("user")
+    if not user:
+        return
+
+    UserSessionManager.set_user_id(user.identifier)
+    if not await refresh_oauth_for_user(user):
+        return
+
+    pilot_context = _get_user_pilot_context()
+    stored_packs = cl.user_session.get(ENABLED_PACKS_SESSION_KEY)
+    enabled_packs = resolve_enabled_pack_ids(stored_packs, pilot_context)
+    set_enabled_pack_ids(enabled_packs)
+
+    system_prompt = build_system_prompt(enabled_packs)
+    message_history = UserSessionManager.get_message_history()
+    if needs_history_rebuild(message_history):
+        message_history = rebuild_llm_history_from_thread(thread, system_prompt)
+    else:
+        update_message_history_system_prompt(message_history, enabled_packs)
+
+    UserSessionManager.set_message_history(message_history)
+    logger.info(
+        "Resumed thread %s with %s history items",
+        thread.get("id"),
+        len(message_history),
+    )
 
 async def create_response_stream(message_history):
     request_kwargs = dict(settings)
