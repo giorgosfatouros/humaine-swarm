@@ -52,3 +52,8 @@ echo "==> docker push ${REPO}:latest"
 docker push "${REPO}:latest"
 
 echo "==> Push complete. Digest above — share with ops before they pull."
+echo ""
+echo "Deploy reminder: mount chat history volume and set CHAINLIT_DB in .env:"
+echo "  docker volume create humaine-chainlit-data"
+echo "  -v humaine-chainlit-data:/data"
+echo "  CHAINLIT_DB=sqlite+aiosqlite:////data/chat_history.db"

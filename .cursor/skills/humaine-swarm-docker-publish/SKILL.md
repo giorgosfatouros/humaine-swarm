@@ -16,6 +16,8 @@ description: Build, tag, push, and deploy the humaine-swarm Chainlit Docker imag
 | Container name | `humaine-swarm-assistant` (adjust if different on server) |
 | Port | `8000` |
 | Env file | `.env` at project root (never bake into image) |
+| Chat history volume | `humaine-chainlit-data` → `/data` in container |
+| `CHAINLIT_DB` (Docker) | `sqlite+aiosqlite:////data/chat_history.db` |
 
 **Not in the image:** `.docs/`, `.md_files/` (gitignored). Pinecone RAG is updated separately via `python data_injection.py` — deploying a new image does not re-index docs.
 
@@ -129,13 +131,17 @@ Partial uploads resume; already-pushed layers skip quickly.
 ## Step 5 — Local test (optional)
 
 ```bash
+docker volume create humaine-chainlit-data 2>/dev/null || true
 docker run -d \
   --name humaine-swarm-assistant \
   -p 8000:8000 \
   --env-file .env \
+  -v humaine-chainlit-data:/data \
   --rm \
   humaine-swarm:latest
 ```
+
+`.env` must include `CHAINLIT_DB=sqlite+aiosqlite:////data/chat_history.db` (see `.env-example`).
 
 Open `http://localhost:8000`. Stop with `docker stop humaine-swarm-assistant`.
 
@@ -156,15 +162,17 @@ SSH to host, then:
 docker pull gfatouros/humaine-swarm:amd64
 docker stop humaine-swarm-assistant || true
 docker rm humaine-swarm-assistant || true
+docker volume create humaine-chainlit-data 2>/dev/null || true
 docker run -d \
   --name humaine-swarm-assistant \
   -p 8000:8000 \
   --env-file /path/to/.env \
+  -v humaine-chainlit-data:/data \
   --restart unless-stopped \
   gfatouros/humaine-swarm:amd64
 ```
 
-Adjust container name, port bind, and env path to match the existing deployment.
+Adjust container name, port bind, env path, and volume name to match the existing deployment. `.env` must set `CHAINLIT_DB=sqlite+aiosqlite:////data/chat_history.db`.
 
 **Smoke test:** Chainlit UI loads; auth works; sample chat + `get_docs` if Pinecone keys are set in `.env`.
 
@@ -176,8 +184,9 @@ When asking infra (e.g. Roberto) to update:
 
 - Image: `gfatouros/humaine-swarm:amd64`
 - New digest: `sha256:...` (from push output or Docker Hub)
-- Steps: `pull` → stop/remove old container → `run` with same `--env-file`
+- Steps: `pull` → stop/remove old container → `run` with same `--env-file` and `-v humaine-chainlit-data:/data`
 - Note: RAG index unchanged unless `data_injection.py` was run separately
+- Note: Chat history persists in Docker volume `humaine-chainlit-data` (requires `CHAINLIT_DB` in `.env`)
 
 ---
 
@@ -191,6 +200,7 @@ When asking infra (e.g. Roberto) to update:
 | Two local tags, same 755MB, different IDs | Two separate builds | Remove stale tag; retag from one build |
 | Push fails mid-upload | Proxy/network drop | Retry `docker push` |
 | App runs but RAG docs missing | Pinecone not re-indexed | Run `python data_injection.py --sources md` (or `pdf,md`) locally (not in container) |
+| Chat history lost after redeploy | No volume mount | Use `-v humaine-chainlit-data:/data` and `CHAINLIT_DB=sqlite+aiosqlite:////data/chat_history.db` |
 
 ---
 
