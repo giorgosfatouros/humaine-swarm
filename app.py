@@ -252,13 +252,12 @@ async def finalize_assistant_message(msg: cl.Message) -> None:
 # Process assistant's response stream and handle tool calls (Responses API)
 async def process_responses_stream(stream, message_history, msg):
     tool_calls_by_item_id = {}
-    text_content = ""
 
     async for event in stream:
         event_type = getattr(event, "type", None)
 
         if event_type == "response.output_text.delta":
-            text_content += event.delta
+            # stream_token already appends the delta to msg.content
             await msg.stream_token(event.delta)
         elif event_type == "response.output_item.added":
             item = event.item
@@ -277,9 +276,6 @@ async def process_responses_stream(stream, message_history, msg):
             tool_call = tool_calls_by_item_id.get(event.item_id)
             if tool_call:
                 tool_call["arguments"] = event.arguments
-
-    if text_content:
-        msg.content = (msg.content or "") + text_content
 
     valid_tool_calls = []
     for tool_call in tool_calls_by_item_id.values():

@@ -17,7 +17,7 @@ Implemented in [app.py](../../app.py).
 
 - **Input**: Async Responses API stream, current `message_history`, and a Chainlit `Message` object `msg` for this turn.
 - **Loop** over stream events:
-  - **`response.output_text.delta`**: Appended to `text_content` and streamed to the UI with `msg.stream_token(event.delta)`.
+  - **`response.output_text.delta`**: Streamed to the UI with `msg.stream_token(event.delta)`, which also appends the delta to `msg.content` (so the app must not re-append the text itself).
   - **`response.output_item.added`** (`function_call`): Registers tool calls keyed by `item_id`.
   - **`response.function_call_arguments.delta` / `.done`**: Accumulates JSON arguments per tool call.
 - **After stream**: Tool-call argument strings are validated (non-empty, ends with `}`, `json.loads`). Only valid tool calls are executed.
