@@ -297,14 +297,16 @@ async def get_user_kubeflow_client() -> kfp.Client:
 
 
 def read_prompt(type: str):
-    current_date = datetime.now().strftime("%Y-%m-%d")
-
     if type == "system":
-        with open('agents/system.md', 'r') as file:
-            prompt = file.read()
-            update_info = f"\n\n*Note:  Today's date is {current_date}.*\n\nWhen you receive function results, incorporate them into your responses to provide accurate and helpful information to the user."
-            prompt += update_info
-    return prompt
+        from agents.tool_packs import (
+            get_default_enabled_pack_ids,
+            build_system_prompt,
+            resolve_enabled_pack_ids,
+        )
+
+        all_packs = resolve_enabled_pack_ids(get_default_enabled_pack_ids())
+        return build_system_prompt(all_packs)
+    return ""
 
 
 @cl.step(type="llm", name="Optimizing User Query")
