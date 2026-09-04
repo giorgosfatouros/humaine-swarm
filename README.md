@@ -173,6 +173,7 @@ Variables must be visible to **Python/Chainlit**: put them in **`humaine-swarm/.
     *   `MINIO_ENDPOINT` - MinIO endpoint URL (default: `s3-minio.humaine-horizon.eu`)
     *   `KUBEFLOW_HOST` - Kubeflow host URL (default: `http://huanew-kubeflow.ddns.net/pipeline`)
     *   `LOG_LEVEL` - Logging level (default: `ERROR`)
+    *   `CHAINLIT_DB` - SQLite path for chat history (see Docker persistence below)
     
     You can edit the file using your preferred text editor:
     ```bash
@@ -181,15 +182,23 @@ Variables must be visible to **Python/Chainlit**: put them in **`humaine-swarm/.
     vim .env
     ```
 
-3.  **Run the container:**
+3.  **Create a volume for chat history** (survives container recreate/redeploy):
+    ```bash
+    docker volume create humaine-chainlit-data
+    ```
+
+4.  **Run the container:**
     ```bash
     docker run -d \
       --name humaine-swarm-assistant \
       -p 8000:8000 \
       --env-file .env \
+      -v humaine-chainlit-data:/data \
       --restart unless-stopped \
       humaine-swarm:latest
     ```
+
+    Chat history is stored in the named volume at `/data/chat_history.db` inside the container. Set `CHAINLIT_DB=sqlite+aiosqlite:////data/chat_history.db` in `.env` (included in `.env-example`). Without the volume, history is lost when the container is removed.
 
 ### Using Pre-built Docker Image from Docker Hub
 
@@ -211,6 +220,7 @@ The easiest way to get started is to use the pre-built image from Docker Hub. No
     *   `PINECONE_API_KEY` - Your Pinecone API key
     *   `OAUTH_KEYCLOAK_CLIENT_SECRET` - Your Keycloak client secret
     *   `KUBEFLOW_HOST` - Kubeflow host URL (default: `http://huanew-kubeflow.ddns.net/pipeline`)
+    *   `CHAINLIT_DB` - SQLite path for chat history (see Docker persistence below)
     
     You can edit the file using your preferred text editor:
     ```bash
@@ -219,15 +229,23 @@ The easiest way to get started is to use the pre-built image from Docker Hub. No
     vim .env
     ```
 
-3.  **Run the container:**
+3.  **Create a volume for chat history** (if not already created):
+    ```bash
+    docker volume create humaine-chainlit-data
+    ```
+
+4.  **Run the container:**
     ```bash
     docker run -d \
       --name humaine-swarm-assistant \
       -p 8000:8000 \
       --env-file .env \
+      -v humaine-chainlit-data:/data \
       --restart unless-stopped \
       gfatouros/humaine-swarm:latest
     ```
+
+    Ensure `.env` sets `CHAINLIT_DB=sqlite+aiosqlite:////data/chat_history.db` (see `.env-example`).
 
 The application will be available at `http://localhost:8000`.
 

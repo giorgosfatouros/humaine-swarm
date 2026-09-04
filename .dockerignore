@@ -80,6 +80,8 @@ notebooks/
 
 # Chainlit translations (if not needed in container)
 .chainlit/translations/
+.chainlit/*.db
+.chainlit/*.db-*
 
 # Logs
 *.log
