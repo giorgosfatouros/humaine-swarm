@@ -3,7 +3,6 @@ from utils.dotenv_local import load_swarm_dotenv
 load_swarm_dotenv()
 
 import asyncio
-from openai import AsyncOpenAI
 import chainlit as cl
 from chainlit import User
 from chainlit.input_widget import MultiSelect
@@ -38,6 +37,7 @@ from utils.haic_routing import detect_haic_live_query
 from utils.haic_client import format_haic_result_markdown
 from utils.helper_functions import setup_logging
 from utils.config import settings
+from utils.langfuse_setup import get_openai_client, trace_chat_turn
 from utils.responses_adapter import (
     build_responses_input,
     convert_tools_for_responses,
@@ -59,7 +59,7 @@ import plotly.io as pio
 logger = setup_logging('CHAT', level=logging.ERROR)
 logging.getLogger("httpx").setLevel("WARNING")
 
-client = AsyncOpenAI()
+client = get_openai_client()
 
 
 @cl.data_layer
@@ -439,9 +439,15 @@ async def main(message: cl.Message):
         UserSessionManager.set_message_history(message_history)
         return
 
-    stream = await create_response_stream(message_history)
-
-    await process_responses_stream(stream, message_history, msg)
+    with trace_chat_turn(
+        UserSessionManager.get_user_id(),
+        thread_id,
+        message.content,
+    ) as root:
+        stream = await create_response_stream(message_history)
+        await process_responses_stream(stream, message_history, msg)
+        if root is not None:
+            root.update(output=msg.content or "")
     if msg.content.strip():
         message_history.append({"role": "assistant", "content": msg.content})
         
