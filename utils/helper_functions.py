@@ -539,8 +539,10 @@ def get_minio_client(user_credentials: Optional[Dict[str, str]] = None) -> Minio
         
         # Validate hostname - ensure it's the correct endpoint
         if hostname == "minio.humaine-horizon.eu":
-            logger.error(f"ERROR: Wrong endpoint detected! Got 'minio.humaine-horizon.eu' but expected 's3-minio.humaine-horizon.eu'")
-            logger.error(f"ERROR: Overriding to correct endpoint: s3-minio.humaine-horizon.eu")
+            logger.warning(
+                "Wrong MINIO_ENDPOINT 'minio.humaine-horizon.eu'; "
+                "using 's3-minio.humaine-horizon.eu' instead"
+            )
             hostname = "s3-minio.humaine-horizon.eu"
         
         # Match test script behavior:

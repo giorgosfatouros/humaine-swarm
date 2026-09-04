@@ -38,6 +38,23 @@ class TestLangfuseSetup(unittest.TestCase):
             _configure_langfuse_env()
             self.assertEqual(os.environ["LANGFUSE_HOST"], "https://cloud.langfuse.com")
 
+    def test_strips_quotes_from_langfuse_env(self):
+        with patch.dict(
+            os.environ,
+            {
+                "LANGFUSE_BASE_URL": '"https://cloud.langfuse.com"',
+                "LANGFUSE_PUBLIC_KEY": '"pk-lf-test"',
+                "LANGFUSE_SECRET_KEY": "'sk-lf-test'",
+            },
+            clear=True,
+        ):
+            _configure_langfuse_env()
+            self.assertEqual(
+                os.environ["LANGFUSE_BASE_URL"], "https://cloud.langfuse.com"
+            )
+            self.assertEqual(os.environ["LANGFUSE_HOST"], "https://cloud.langfuse.com")
+            self.assertEqual(os.environ["LANGFUSE_PUBLIC_KEY"], "pk-lf-test")
+
     def test_trace_chat_turn_noop_when_disabled(self):
         with patch.dict(os.environ, {}, clear=True):
             with trace_chat_turn("user-1", "thread-1", "hello") as root:

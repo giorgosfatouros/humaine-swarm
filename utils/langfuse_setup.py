@@ -11,7 +11,25 @@ from openai import AsyncOpenAI
 _MAX_ATTR_LEN = 200
 
 
+def _clean_env(value: str | None) -> str | None:
+    if value is None:
+        return None
+    text = value.strip().strip('"').strip("'")
+    return text or None
+
+
 def _configure_langfuse_env() -> None:
+    for key in (
+        "LANGFUSE_BASE_URL",
+        "LANGFUSE_HOST",
+        "LANGFUSE_PUBLIC_KEY",
+        "LANGFUSE_SECRET_KEY",
+    ):
+        raw = os.environ.get(key)
+        if raw:
+            cleaned = _clean_env(raw)
+            if cleaned:
+                os.environ[key] = cleaned
     base_url = os.environ.get("LANGFUSE_BASE_URL")
     if base_url and not os.environ.get("LANGFUSE_HOST"):
         os.environ["LANGFUSE_HOST"] = base_url
