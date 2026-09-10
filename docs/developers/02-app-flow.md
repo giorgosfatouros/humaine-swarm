@@ -9,7 +9,7 @@
    - `settings` from [utils/config.py](../../utils/config.py): model, **tools**, **reasoning**, **max_output_tokens**, **stream**: True.
    - `message_history` is the single source of truth (system prompt extracted to `instructions` via [utils/responses_adapter.py](../../utils/responses_adapter.py)).
 5. **Stream processing**: `process_responses_stream(stream, message_history, msg)`.
-6. After the stream: append assistant content to history if non-empty; persist via `UserSessionManager.set_message_history(message_history)`; finalize the UI message with `finalize_assistant_message(msg)` — `msg.update()` if tokens were streamed (`msg.streaming` is True), otherwise `msg.send()`.
+6. After the stream: append assistant content to history if non-empty; persist via `UserSessionManager.set_message_history(message_history)`; finalize the UI message with `finalize_assistant_message(msg)` — `msg.update()` if the message was already sent (`msg.persisted` is True), otherwise `msg.send()`. Streamed replies must end with `send()`: it is the only call that stamps `createdAt` and writes the step to the data layer, so an `update()`-only reply is missing when the thread is resumed. Re-sending a streamed message does not duplicate it in the UI because the frontend merges an incoming message into the existing one by id.
 
 ## Stream processing (`process_responses_stream`)
 
@@ -60,7 +60,7 @@ sequenceDiagram
         app_py->>app_py: process_responses_stream(follow_up_stream, ...)
     end
     app_py->>Session: set_message_history(message_history)
-    alt msg.streaming
+    alt msg.persisted
         app_py->>Chainlit: msg.update()
     else
         app_py->>Chainlit: msg.send()

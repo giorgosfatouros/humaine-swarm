@@ -255,7 +255,11 @@ async def finalize_assistant_message(msg: cl.Message) -> None:
     has_elements = bool(getattr(msg, "elements", None))
     if not has_content and not has_elements:
         return
-    if getattr(msg, "streaming", False):
+    # Only send() stamps created_at and writes the step to the data layer, so a
+    # streamed reply that is merely update()d is lost when the thread resumes.
+    # The UI merges an incoming message by id, so re-sending a streamed message
+    # replaces the existing bubble instead of appending a second one.
+    if getattr(msg, "persisted", False):
         await msg.update()
     else:
         await msg.send()
