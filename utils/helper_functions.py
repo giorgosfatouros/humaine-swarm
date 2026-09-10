@@ -1,12 +1,9 @@
 import logging
-from typing import Optional, Dict, List, Any, NamedTuple
+from typing import Optional, Dict, List, Any
 import os
-import re
-from urllib.parse import urlsplit, urlencode
 import kfp
 from kfp.dsl import Input, Output, Artifact, Dataset, Model, Metrics, ClassificationMetrics
 import requests
-import urllib3
 # import matplotlib.pyplot as plt
 from chainlit import User
 from agents.definition import functions
@@ -421,76 +418,54 @@ async def fetch_minio_credentials_from_keycloak(access_token: str) -> Dict[str, 
         raise
 
 
-def extract_user_namespace_from_token(access_token: str) -> str:
+def extract_user_namespace_from_token(access_token: str) -> Optional[str]:
     """
     Extract Kubeflow namespace from Keycloak OAuth token claims.
-    Looks for namespace in groups, roles, or custom claims.
-    
-    Args:
-        access_token: The Keycloak OAuth access token
-        
-    Returns:
-        The user's Kubeflow namespace, or "kubeflow" as default
+    Looks for an explicit namespace in groups, roles, or custom claims.
+    Does not invent a namespace from email — that produces a non-existent
+    private namespace and hides the shared catalog the UI shows as All namespaces.
     """
     try:
-        # Decode token without verification (we trust it came from OAuth flow)
         decoded = jwt.decode(access_token, options={"verify_signature": False})
-        
-        # Try to extract namespace from various possible claim locations
-        # 1. Check for direct namespace claim
-        if "namespace" in decoded:
+
+        if "namespace" in decoded and decoded["namespace"]:
             namespace = decoded["namespace"]
             logger.info(f"Found namespace in token claims: {namespace}")
             return namespace
-        
-        # 2. Check groups for namespace-like patterns
+
         groups = decoded.get("groups", [])
         if isinstance(groups, list):
             for group in groups:
-                if group.startswith("kubeflow-"):
-                    namespace = group
-                    logger.info(f"Found namespace in groups: {namespace}")
-                    return namespace
-        
-        # 3. Check realm_access roles
+                if isinstance(group, str) and group.startswith("kubeflow-"):
+                    logger.info(f"Found namespace in groups: {group}")
+                    return group
+
         realm_access = decoded.get("realm_access", {})
         roles = realm_access.get("roles", [])
         if isinstance(roles, list):
             for role in roles:
-                if role.startswith("kubeflow-"):
-                    namespace = role
-                    logger.info(f"Found namespace in realm roles: {namespace}")
-                    return namespace
-        
-        # 4. Check resource_access roles
+                if isinstance(role, str) and role.startswith("kubeflow-"):
+                    logger.info(f"Found namespace in realm roles: {role}")
+                    return role
+
         resource_access = decoded.get("resource_access", {})
-        for resource, data in resource_access.items():
+        for data in resource_access.values():
             resource_roles = data.get("roles", [])
             if isinstance(resource_roles, list):
                 for role in resource_roles:
-                    if role.startswith("kubeflow-"):
-                        namespace = role
-                        logger.info(f"Found namespace in resource roles: {namespace}")
-                        return namespace
-        
-        # 5. Use preferred_username to construct namespace
-        username = decoded.get("preferred_username") or decoded.get("email")
-        if username:
-            # Convert email/username to valid namespace format
-            namespace = f"kubeflow-{username.replace('@', '-').replace('.', '-').lower()}"
-            logger.info(f"Constructed namespace from username: {namespace}")
-            return namespace
-        
-        # Default fallback
-        logger.warning("Could not extract namespace from token, using default 'kubeflow'")
-        return "kubeflow"
-        
+                    if isinstance(role, str) and role.startswith("kubeflow-"):
+                        logger.info(f"Found namespace in resource roles: {role}")
+                        return role
+
+        logger.info("No Kubeflow namespace claim in token; using unscoped / all-namespaces listing")
+        return None
+
     except jwt.DecodeError as e:
         logger.error(f"Failed to decode JWT token: {str(e)}")
-        return "kubeflow"
+        return None
     except Exception as e:
         logger.error(f"Error extracting namespace from token: {str(e)}")
-        return "kubeflow"
+        return None
 
 
 def get_minio_client(user_credentials: Optional[Dict[str, str]] = None) -> Minio:
@@ -579,243 +554,59 @@ def get_minio_client(user_credentials: Optional[Dict[str, str]] = None) -> Minio
 
 
 
-class KFPClientManager:
+def normalize_kubeflow_host(host: Optional[str]) -> Optional[str]:
+    """Ensure KUBEFLOW_HOST points at the Pipelines API, not the central dashboard.
+
+    `https://kubeflow.humaine-horizon.eu/` serves the UI; kfp.Client needs
+    `https://kubeflow.humaine-horizon.eu/pipeline`.
     """
-    A class that creates `kfp.Client` instances with Dex authentication.
-    """
+    if not host:
+        return host
+    host = host.strip().rstrip("/")
+    if not host.endswith("/pipeline"):
+        host = f"{host}/pipeline"
+    return host
 
-    def __init__(
-        self,
-        api_url: str,
-        dex_username: str,
-        dex_password: str,
-        dex_auth_type: str = "local",
-        skip_tls_verify: bool = False,
-    ):
-        """
-        Initialize the KfpClient
 
-        :param api_url: the Kubeflow Pipelines API URL
-        :param skip_tls_verify: if True, skip TLS verification
-        :param dex_username: the Dex username
-        :param dex_password: the Dex password
-        :param dex_auth_type: the auth type to use if Dex has multiple enabled, one of: ['ldap', 'local']
-        """
-        self._api_url = api_url
-        self._skip_tls_verify = skip_tls_verify
-        self._dex_username = dex_username
-        self._dex_password = dex_password
-        self._dex_auth_type = dex_auth_type
-        self._client = None
-
-        # disable SSL verification, if requested
-        if self._skip_tls_verify:
-            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
-        # ensure `dex_default_auth_type` is valid
-        if self._dex_auth_type not in ["ldap", "local"]:
-            raise ValueError(
-                f"Invalid `dex_auth_type` '{self._dex_auth_type}', must be one of: ['ldap', 'local']"
-            )
-
-    def _get_session_cookies(self) -> str:
-        """
-        Get the session cookies by authenticating against Dex
-        :return: a string of session cookies in the form "key1=value1; key2=value2"
-        """
-
-        # use a persistent session (for cookies)
-        s = requests.Session()
-
-        # GET the api_url, which should redirect to Dex
-        resp = s.get(
-            self._api_url, allow_redirects=True, verify=not self._skip_tls_verify
-        )
-        if resp.status_code == 200:
-            pass
-        elif resp.status_code == 403:
-            # if we get 403, we might be at the oauth2-proxy sign-in page
-            # the default path to start the sign-in flow is `/oauth2/start?rd=<url>`
-            url_obj = urlsplit(resp.url)
-            url_obj = url_obj._replace(
-                path="/oauth2/start", query=urlencode({"rd": url_obj.path})
-            )
-            resp = s.get(
-                url_obj.geturl(), allow_redirects=True, verify=not self._skip_tls_verify
-            )
-        else:
-            raise RuntimeError(
-                f"HTTP status code '{resp.status_code}' for GET against: {self._api_url}"
-            )
-
-        # if we were NOT redirected, then the endpoint is unsecured
-        if len(resp.history) == 0:
-            # no cookies are needed
-            return ""
-
-        # if we are at `../auth` path, we need to select an auth type
-        url_obj = urlsplit(resp.url)
-        if re.search(r"/auth$", url_obj.path):
-            url_obj = url_obj._replace(
-                path=re.sub(r"/auth$", f"/auth/{self._dex_auth_type}", url_obj.path)
-            )
-
-        # if we are at `../auth/xxxx/login` path, then we are at the login page
-        if re.search(r"/auth/.*/login$", url_obj.path):
-            dex_login_url = url_obj.geturl()
-        else:
-            # otherwise, we need to follow a redirect to the login page
-            resp = s.get(
-                url_obj.geturl(), allow_redirects=True, verify=not self._skip_tls_verify
-            )
-            if resp.status_code != 200:
-                raise RuntimeError(
-                    f"HTTP status code '{resp.status_code}' for GET against: {url_obj.geturl()}"
-                )
-            dex_login_url = resp.url
-
-        # attempt Dex login
-        resp = s.post(
-            dex_login_url,
-            data={"login": self._dex_username, "password": self._dex_password},
-            allow_redirects=True,
-            verify=not self._skip_tls_verify,
-        )
-        if resp.status_code != 200:
-            raise RuntimeError(
-                f"HTTP status code '{resp.status_code}' for POST against: {dex_login_url}"
-            )
-
-        # if we were NOT redirected, then the login credentials were probably invalid
-        if len(resp.history) == 0:
-            raise RuntimeError(
-                f"Login credentials are probably invalid - "
-                f"No redirect after POST to: {dex_login_url}"
-            )
-
-        # if we are at `../approval` path, we need to approve the login
-        url_obj = urlsplit(resp.url)
-        if re.search(r"/approval$", url_obj.path):
-            dex_approval_url = url_obj.geturl()
-
-            # approve the login
-            resp = s.post(
-                dex_approval_url,
-                data={"approval": "approve"},
-                allow_redirects=True,
-                verify=not self._skip_tls_verify,
-            )
-            if resp.status_code != 200:
-                raise RuntimeError(
-                    f"HTTP status code '{resp.status_code}' for POST against: {url_obj.geturl()}"
-                )
-
-        return "; ".join([f"{c.name}={c.value}" for c in s.cookies])
-
-    def _create_kfp_client(self, namespace: Optional[str] = None) -> kfp.Client:
-        try:
-            session_cookies = self._get_session_cookies()
-        except Exception as ex:
-            raise RuntimeError(f"Failed to get Dex session cookies") from ex
-
-        # monkey patch the kfp.Client to support disabling SSL verification
-        # kfp only added support in v2: https://github.com/kubeflow/pipelines/pull/7174
-        original_load_config = kfp.Client._load_config
-
-        def patched_load_config(client_self, *args, **kwargs):
-            config = original_load_config(client_self, *args, **kwargs)
-            config.verify_ssl = not self._skip_tls_verify
-            return config
-
-        patched_kfp_client = kfp.Client
-        patched_kfp_client._load_config = patched_load_config
-
-        # Use provided namespace or fall back to environment variable
-        kf_namespace = namespace or os.getenv("KUBEFLOW_NAMESPACE")
-
-        return patched_kfp_client(
-            host=self._api_url,
-            cookies=session_cookies,
-            namespace=kf_namespace
-        )
-
-    def create_kfp_client(self, namespace: Optional[str] = None) -> kfp.Client:
-        """
-        Get a newly authenticated Kubeflow Pipelines client.
-        
-        Args:
-            namespace: Optional namespace override
-        """
-        return self._create_kfp_client(namespace=namespace)
-            
 def get_kubeflow_client(
-    user_namespace: Optional[str] = None, 
+    user_namespace: Optional[str] = None,
     user_token: Optional[str] = None,
-    user_username: Optional[str] = None,
-    user_password: Optional[str] = None
 ) -> kfp.Client:
-    """
-    Gets the Kubeflow client with proper authentication.
-    
+    """Build a Kubeflow Pipelines client with a Keycloak bearer token.
+
     Args:
-        user_namespace: Optional user-specific namespace. If not provided, uses env var or default
-        user_token: Optional OAuth token for the user. If provided, assumes SSO authentication
-        user_username: Optional username for authentication. If provided, uses this instead of env vars
-        user_password: Optional password for authentication. If provided, uses this instead of env vars
-        
-    Returns:
-        Configured Kubeflow client instance
-        
-    Note: When Kubeflow is integrated with Keycloak SSO, the OAuth token should be used.
-        For now, uses username/password authentication. Credentials should be provided via
-        user_username/user_password parameters (from session) rather than environment variables.
+        user_namespace: Optional user namespace. None lists all namespaces.
+        user_token: Keycloak access token (required).
+
+    Raises:
+        ValueError: If user_token is missing.
     """
-    # Suppress the specific KFP client warning about version compatibility
     import warnings
-    warnings.filterwarnings("ignore", message="This client only works with Kubeflow Pipeline.*", category=FutureWarning)
-    
-    # Use provided credentials if available, otherwise use empty strings (will fail gracefully)
-    kubeflow_username = user_username or ""
-    kubeflow_password = user_password or ""
-    
-    if not kubeflow_username or not kubeflow_password:
-        logger.warning("Kubeflow credentials not provided. Authentication may fail.")
-    
-    kfp_client_manager = KFPClientManager(
-        api_url=os.getenv("KUBEFLOW_HOST"),
-        skip_tls_verify=True,
-        dex_username=kubeflow_username,
-        dex_password=kubeflow_password,
-        dex_auth_type="local",
+    warnings.filterwarnings(
+        "ignore",
+        message="This client only works with Kubeflow Pipeline.*",
+        category=FutureWarning,
     )
 
-    kfp_client = kfp_client_manager.create_kfp_client(namespace=user_namespace)
-    
-    # Log namespace usage
+    if not user_token:
+        raise ValueError(
+            "A Keycloak bearer token is required to create a Kubeflow client."
+        )
+
+    host = normalize_kubeflow_host(os.getenv("KUBEFLOW_HOST"))
+    logger.info("Kubeflow Pipelines API host: %s", host)
+    logger.info("Using Keycloak bearer token for Kubeflow authentication")
     if user_namespace:
-        logger.info(f"Using Kubeflow namespace: {user_namespace}")
-    
-    return kfp_client
+        logger.info("Using Kubeflow namespace: %s", user_namespace)
+    else:
+        logger.info("Using unscoped / all-namespaces listing")
 
-
-def get_kubeflow_old_client(host: str, username: str, password: str, namespace: str) -> kfp.Client:
-    """Initialize and return a Kubeflow Pipelines client."""
-    session = requests.Session()
-    response = session.get(host)
-    
-    headers = {
-        "Content-Type": "application/x-www-form-urlencoded",
-    }
-    
-    data = {"login": username, "password": password}
-    session.post(response.url, headers=headers, data=data)
-    session_cookie = session.cookies.get_dict()["authservice_session"]
-    
     return kfp.Client(
-        host=f"{host}/pipeline",
-        cookies=f"authservice_session={session_cookie}",
-        namespace=namespace,
+        host=host,
+        namespace=user_namespace,
+        existing_token=user_token,
     )
+
 
 # New functions for artifact metadata handling
 

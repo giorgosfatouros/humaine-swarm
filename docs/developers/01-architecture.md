@@ -12,7 +12,7 @@
 | System prompt | [agents/system.md](../../agents/system.md) | Loaded via `read_prompt('system')` in agents/code.py |
 | Session manager | [classes/user_handler.py](../../classes/user_handler.py) | `UserSessionManager`: message history, OAuth, MinIO/Kubeflow credentials, namespace |
 | Config | [utils/config.py](../../utils/config.py) | Env-derived settings; OpenAI `settings` dict |
-| Helpers | [utils/helper_functions.py](../../utils/helper_functions.py) | MinIO client, Kubeflow client (Dex), STS credential fetch, namespace extraction |
+| Helpers | [utils/helper_functions.py](../../utils/helper_functions.py) | MinIO client, Kubeflow client (Keycloak bearer), STS credential fetch, namespace extraction |
 
 Integrations: **Kubeflow** (pipelines, runs, experiments), **MinIO** (buckets, artifacts; user-scoped via STS), **Pinecone** (vector index for RAG), **Keycloak** (OAuth provider), **HAIC Benchmark Suite** (pilot evaluation results via `query_haic_benchmark`).
 

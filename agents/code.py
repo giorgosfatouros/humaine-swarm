@@ -65,233 +65,33 @@ async def get_user_minio_client() -> Minio:
         return get_minio_client()
 
 
-async def prompt_for_kubeflow_credentials() -> Optional[Dict[str, str]]:
-    """
-    Prompt the user for Kubeflow credentials using Chainlit's AskUserMessage.
-    
-    Returns:
-        Dictionary with 'username', 'password', and optionally 'namespace' keys,
-        or None if user cancels or times out
-    """
-    try:
-        # Prompt for username
-        username_response = await cl.AskUserMessage(
-            content="Please provide your Kubeflow username to connect to Kubeflow pipelines.",
-            timeout=120,
-            raise_on_timeout=False
-        ).send()
-        
-        if not username_response or not username_response.get('output'):
-            logger.warning("User cancelled or timed out while providing Kubeflow username")
-            await cl.Message(
-                content="Kubeflow connection cancelled. Please provide credentials when prompted to use Kubeflow features.",
-                author="System"
-            ).send()
-            return None
-        
-        username = username_response['output'].strip()
-        if not username:
-            logger.warning("User provided empty username")
-            await cl.Message(
-                content="Username cannot be empty. Please try again.",
-                author="System"
-            ).send()
-            return None
-        
-        # Prompt for password
-        password_response = await cl.AskUserMessage(
-            content="Please provide your Kubeflow password.",
-            timeout=120,
-            raise_on_timeout=False
-        ).send()
-        
-        if not password_response or not password_response.get('output'):
-            logger.warning("User cancelled or timed out while providing Kubeflow password")
-            await cl.Message(
-                content="Kubeflow connection cancelled. Please provide credentials when prompted to use Kubeflow features.",
-                author="System"
-            ).send()
-            return None
-        
-        password = password_response['output'].strip()
-        if not password:
-            logger.warning("User provided empty password")
-            await cl.Message(
-                content="Password cannot be empty. Please try again.",
-                author="System"
-            ).send()
-            return None
-        
-        # Optionally prompt for namespace
-        namespace_response = await cl.AskUserMessage(
-            content="Please provide your Kubeflow namespace (optional - press Enter to skip and use default).",
-            timeout=120,
-            raise_on_timeout=False
-        ).send()
-        
-        namespace = None
-        if namespace_response and namespace_response.get('output'):
-            namespace = namespace_response['output'].strip()
-            if not namespace:
-                namespace = None
-        
-        credentials = {
-            "username": username,
-            "password": password,
-            "namespace": namespace
-        }
-        
-        logger.info("Kubeflow credentials collected from user (username logged, password not logged)")
-        return credentials
-        
-    except Exception as e:
-        logger.error(f"Error prompting for Kubeflow credentials: {str(e)}")
-        try:
-            await cl.Message(
-                content=f"An error occurred while collecting credentials: {str(e)}",
-                author="System"
-            ).send()
-        except:
-            pass
-        return None
-
-
 async def get_user_kubeflow_client() -> kfp.Client:
-    """
-    Get a Kubeflow client configured with user-specific credentials from session.
-    Checks for credentials in this order:
-    1. Session credentials (username/password)
-    2. OAuth token + namespace extraction
-    If neither is available, prompts the user for credentials.
-    
+    """Return a Kubeflow client authenticated with the session Keycloak bearer token.
+
     Raises:
-        ValueError: If user cancels credential prompt or credentials are invalid
-        RuntimeError: If connection to Kubeflow fails
+        ValueError: If the session has no OAuth token.
+        RuntimeError: If the Kubeflow API cannot be reached with that token.
     """
-    max_retries = 2
-    retry_count = 0
-    
-    while retry_count <= max_retries:
-        try:
-            # First, check for session credentials
-            session_creds = UserSessionManager.get_kubeflow_credentials()
-            if session_creds and UserSessionManager.has_kubeflow_credentials():
-                username = session_creds.get("username")
-                password = session_creds.get("password")
-                namespace = session_creds.get("namespace") or UserSessionManager.get_kubeflow_namespace()
-                
-                logger.info("Using session-stored Kubeflow credentials")
-                try:
-                    return get_kubeflow_client(
-                        user_namespace=namespace,
-                        user_username=username,
-                        user_password=password
-                    )
-                except RuntimeError as e:
-                    error_msg = str(e).lower()
-                    # Check if it's an authentication error
-                    if "login" in error_msg or "credential" in error_msg or "invalid" in error_msg:
-                        logger.warning(f"Stored credentials appear to be invalid: {str(e)}")
-                        # Clear invalid credentials and re-prompt
-                        UserSessionManager.clear_kubeflow_credentials()
-                        if retry_count < max_retries:
-                            retry_count += 1
-                            await cl.Message(
-                                content="The stored Kubeflow credentials appear to be invalid. Please provide new credentials.",
-                                author="System"
-                            ).send()
-                            continue
-                        else:
-                            raise ValueError("Invalid Kubeflow credentials provided. Please try again.") from e
-                    else:
-                        # Other connection errors
-                        raise RuntimeError(f"Failed to connect to Kubeflow: {str(e)}") from e
-            
-            # Second, check for OAuth token + namespace
-            namespace = UserSessionManager.get_kubeflow_namespace()
-            oauth_token = UserSessionManager.get_oauth_token()
-            
-            if namespace and oauth_token:
-                logger.info(f"OAuth token available with namespace: {namespace}")
-                # Note: OAuth token-based auth not fully implemented yet
-                # For now, we'll still need credentials
-                # This is a placeholder for future SSO implementation
-                pass
-            
-            # If no credentials available, prompt the user
-            if retry_count == 0:
-                logger.info("No Kubeflow credentials found in session, prompting user")
-            else:
-                logger.info("Re-prompting for Kubeflow credentials after invalid credentials")
-            
-            credentials = await prompt_for_kubeflow_credentials()
-            
-            if not credentials:
-                raise ValueError("User cancelled or failed to provide Kubeflow credentials. Cannot connect to Kubeflow.")
-            
-            # Validate credentials format
-            if not credentials.get("username") or not credentials.get("password"):
-                raise ValueError("Invalid credentials format: username and password are required")
-            
-            # Store credentials in session
-            UserSessionManager.set_kubeflow_credentials(
-                username=credentials["username"],
-                password=credentials["password"],
-                namespace=credentials.get("namespace")
-            )
-            
-            # Use the stored credentials
-            namespace = credentials.get("namespace") or UserSessionManager.get_kubeflow_namespace()
-            logger.info("Attempting to connect with newly provided Kubeflow credentials")
-            
-            try:
-                return get_kubeflow_client(
-                    user_namespace=namespace,
-                    user_username=credentials["username"],
-                    user_password=credentials["password"]
-                )
-            except RuntimeError as e:
-                error_msg = str(e).lower()
-                # Check if it's an authentication error
-                if "login" in error_msg or "credential" in error_msg or "invalid" in error_msg:
-                    logger.warning(f"Provided credentials appear to be invalid: {str(e)}")
-                    # Clear invalid credentials
-                    UserSessionManager.clear_kubeflow_credentials()
-                    if retry_count < max_retries:
-                        retry_count += 1
-                        await cl.Message(
-                            content="The provided Kubeflow credentials appear to be invalid. Please try again.",
-                            author="System"
-                        ).send()
-                        continue
-                    else:
-                        raise ValueError("Invalid Kubeflow credentials provided. Please verify your username and password.") from e
-                else:
-                    # Other connection errors
-                    raise RuntimeError(f"Failed to connect to Kubeflow: {str(e)}") from e
-        
-        except ValueError as e:
-            # User cancellation or validation errors - don't retry
-            logger.error(f"Kubeflow credential error: {str(e)}")
-            raise
-        except RuntimeError as e:
-            # Connection errors - don't retry
-            logger.error(f"Kubeflow connection error: {str(e)}")
-            raise
-        except Exception as e:
-            logger.error(f"Unexpected error getting user Kubeflow client: {str(e)}")
-            if retry_count < max_retries:
-                retry_count += 1
-                await cl.Message(
-                    content=f"An error occurred: {str(e)}. Retrying...",
-                    author="System"
-                ).send()
-                continue
-            else:
-                raise RuntimeError(f"Failed to get Kubeflow client after {max_retries} retries: {str(e)}") from e
-    
-    # Should not reach here, but just in case
-    raise RuntimeError("Failed to get Kubeflow client after maximum retries")
+    namespace = UserSessionManager.get_kubeflow_namespace()
+    token = UserSessionManager.get_oauth_token()
+    if not token:
+        raise ValueError(
+            "No Keycloak access token in session. Sign in again to use Kubeflow."
+        )
+
+    logger.info(
+        "Connecting to Kubeflow with Keycloak bearer token (namespace: %s)",
+        namespace or "all namespaces",
+    )
+    try:
+        return get_kubeflow_client(user_namespace=namespace, user_token=token)
+    except ValueError:
+        raise
+    except Exception as exc:
+        logger.error("Failed to connect to Kubeflow: %s", exc)
+        raise RuntimeError(
+            "Failed to connect to Kubeflow with the session token."
+        ) from exc
 
 
 

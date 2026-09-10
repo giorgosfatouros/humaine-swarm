@@ -15,7 +15,7 @@ This guide provides a overview of how to use Kubeflow for machine learning pipel
 
 ## 1. Connecting to Kubeflow
 
-Kubeflow provides a client interface that allows you to interact with the platform programmatically. You need to use the client manager (`KFPClientManager`) that handles authentication with Dex.
+The HumAIne Swarm app authenticates with a Keycloak bearer token via `get_kubeflow_client(user_token=...)`. The Dex `KFPClientManager` cookie flow below is historical sample code and is no longer in `utils/helper_functions.py`.
 
 ### Kubeflow Client Code
 
@@ -961,7 +961,7 @@ This guide provides the foundation for using Kubeflow in HumAIne. By following t
 
 ### Key Takeaways
 
-1. **Client Authentication**: Use the provided `KFPClientManager` to authenticate with Kubeflow
+1. **Client Authentication**: The application uses its Keycloak bearer token; the `KFPClientManager` shown above is historical sample code only
 2. **Component Design**: Create modular, well-documented components with clear input/output definitions
 3. **Pipeline Organization**: Structure pipelines with a logical flow from data loading to model evaluation
 4. **Metadata Tracking**: Add consistent metadata to all artifacts for traceability and reproducibility

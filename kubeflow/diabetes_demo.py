@@ -1,7 +1,9 @@
+import os
+
 import kfp
 import kfp.dsl as dsl
 from kfp.dsl import Dataset, Input, Output, Model, Metrics, ClassificationMetrics, HTML
-from utils.helper_functions import get_kubeflow_client, get_kubeflow_old_client
+from utils.helper_functions import get_kubeflow_client
 
 # 1. DATA LOADING COMPONENT
 @dsl.component(
@@ -885,7 +887,9 @@ if __name__ == "__main__":
     
     print("Pipeline compiled successfully. You can now upload 'diabetes_classification_pipeline.yaml' to the Kubeflow Pipelines UI.")
     
-    client = get_kubeflow_client()
+    client = get_kubeflow_client(
+        user_token=os.environ["KUBEFLOW_BEARER_TOKEN"],
+    )
 
     client.create_run_from_pipeline_func(
         diabetes_classification_pipeline,

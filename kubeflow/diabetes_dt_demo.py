@@ -1,4 +1,5 @@
 import os
+
 import kfp
 import kfp.dsl as dsl
 from kfp.dsl import Dataset, Input, Output, Model, Metrics, ClassificationMetrics, HTML
@@ -971,7 +972,9 @@ if __name__ == "__main__":
     print(f"Pipeline compiled successfully to '{pipeline_package_path}'")
     
     # Get the Kubeflow client
-    client = get_kubeflow_client()
+    client = get_kubeflow_client(
+        user_token=os.environ["KUBEFLOW_BEARER_TOKEN"],
+    )
     
     # Upload the pipeline
     pipeline_name = 'diabetes-dt-classification'

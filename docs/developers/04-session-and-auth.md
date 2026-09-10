@@ -24,8 +24,7 @@ Implemented in [classes/user_handler.py](../../classes/user_handler.py). All sta
 | User ID | `set_user_id`, `get_user_id` | From Chainlit user (identifier, metadata email/sub/preferred_username) |
 | OAuth token | `set_oauth_token`, `get_oauth_token` | Keycloak access token |
 | MinIO credentials | `set_minio_credentials`, `get_minio_credentials`, `are_minio_credentials_valid`, `fetch_and_store_minio_credentials`, `get_or_refresh_minio_credentials` | access_key, secret_key, session_token, expiry; refresh on expiry or when “should refresh” (exp &lt; 5 min) |
-| Kubeflow namespace | `set_kubeflow_namespace`, `get_kubeflow_namespace`, `extract_and_store_namespace` | From token claims |
-| Kubeflow credentials | `set_kubeflow_credentials`, `get_kubeflow_credentials`, `has_kubeflow_credentials`, `clear_kubeflow_credentials` | Username, password, optional namespace (Dex auth) |
+| Kubeflow namespace | `set_kubeflow_namespace`, `get_kubeflow_namespace`, `extract_and_store_namespace` | From token claims (`None` = all-namespaces listing) |
 | Token metadata | `set_token_metadata`, `get_token_metadata`, `extract_and_store_token_info` | exp, email, roles, policies, etc. |
 | Policies / roles | `set_user_policies`, `get_user_policies`, `set_user_roles`, `get_user_roles` | From token (MinIO policies, Keycloak roles) |
 | Groups | `set_user_groups`, `get_user_groups` | Keycloak `groups` claim (used for HAIC pilot mapping) |
@@ -52,16 +51,16 @@ In [utils/helper_functions.py](../../utils/helper_functions.py):
 **`extract_user_namespace_from_token(access_token)`** in [utils/helper_functions.py](../../utils/helper_functions.py):
 
 - Decodes JWT with **options={"verify_signature": False}**.
-- Tries in order: **namespace** claim; **groups** entry starting with `kubeflow-`; **realm_access.roles** with `kubeflow-`; **resource_access** roles with `kubeflow-`; then **preferred_username** or **email** normalized to `kubeflow-<value>`.
-- Default: **"kubeflow"**.
+- Tries in order: **namespace** claim; **groups** entry starting with `kubeflow-`; **realm_access.roles** with `kubeflow-`; **resource_access** roles with `kubeflow-`.
+- If none match, returns **None** (do not invent `kubeflow-<email>`). Listing then uses the unscoped / “All namespaces” catalog.
 
-## Kubeflow client (Dex)
+## Kubeflow client (Keycloak bearer)
 
-- **`get_kubeflow_client(user_namespace, user_username, user_password)`** in [utils/helper_functions.py](../../utils/helper_functions.py):  
-  Instantiates **KFPClientManager** with **KUBEFLOW_HOST**, skip_tls_verify=True, dex_username, dex_password, dex_auth_type="local". Calls **`create_kfp_client(namespace=user_namespace)`**, which performs Dex login (**`_get_session_cookies()`**: GET host, follow redirects to auth/login, POST login/password, optional approval POST), then returns **kfp.Client(host, cookies, namespace)**.
+- **`get_kubeflow_client(user_namespace, user_token)`** in [utils/helper_functions.py](../../utils/helper_functions.py):
+  Requires **user_token**. Returns **kfp.Client(host=KUBEFLOW_HOST, existing_token=user_token, namespace=user_namespace)** using normal TLS certificate verification. Raises **ValueError** if the token is missing. There is no username/password or Dex cookie path.
 
-- **`get_user_kubeflow_client()`** in [agents/code.py](../../agents/code.py):  
-  First uses **UserSessionManager.get_kubeflow_credentials()** and **has_kubeflow_credentials()**; if valid, builds client with those. On auth/credential errors it clears stored credentials and can re-prompt. If no credentials, it calls **`prompt_for_kubeflow_credentials()`** (Chainlit AskUserMessage for username, password, optional namespace), stores them, then creates the client. Retries up to **max_retries** (2) on invalid credentials.
+- **`get_user_kubeflow_client()`** in [agents/code.py](../../agents/code.py):
+  Reads the namespace from **UserSessionManager.get_kubeflow_namespace()** (`None` means all-namespaces listing, not "no auth") and the Keycloak access token from **UserSessionManager.get_oauth_token()**. Raises **ValueError** if the token is absent, builds the client with **`get_kubeflow_client()`**, and wraps client-construction failures as **RuntimeError** without including the token. The requested operation performs the first API call. No credential prompt, retries, or password storage.
 
 ## Auth/session flow diagram
 

@@ -26,6 +26,6 @@ If you only have a run_id, you may need to list runs or artifacts to find the co
 
 ## Sessions
 
-- The app keeps **per-user session state**: message history, OAuth token, MinIO credentials (from Keycloak STS), Kubeflow namespace, and optionally Kubeflow username/password if you entered them when prompted.
+- The app keeps **per-user session state**: message history, OAuth token, MinIO credentials (from Keycloak STS), and Kubeflow namespace. Kubeflow reuses the session OAuth token; it does not collect or store your password.
 - **Session expiry**: Chainlit and the app define session timeouts; see the deployment configuration. If you are idle too long, you may need to start a new chat or refresh.
 - **Token expiry**: Your Keycloak access token expires. When it does, MinIO credential refresh can fail. The app then **clears your session** and shows a message like “Your session has expired. Please refresh the page to log in again.” **Refresh the page and log in again** to continue; no data is retained after session clear.

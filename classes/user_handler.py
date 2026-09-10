@@ -242,8 +242,8 @@ class UserSessionManager:
     
     # Kubeflow Namespace Management
     @staticmethod
-    def set_kubeflow_namespace(namespace: str):
-        """Store the user's Kubeflow namespace in the session."""
+    def set_kubeflow_namespace(namespace: Optional[str]):
+        """Store the user's Kubeflow namespace in the session (None = all namespaces)."""
         cl.user_session.set("kubeflow_namespace", namespace)
         logger.info(f"Kubeflow namespace set to: {namespace}")
     
@@ -251,49 +251,7 @@ class UserSessionManager:
     def get_kubeflow_namespace() -> Optional[str]:
         """Retrieve the user's Kubeflow namespace from the session."""
         return cl.user_session.get("kubeflow_namespace")
-    
-    # Kubeflow Credentials Management
-    @staticmethod
-    def set_kubeflow_credentials(username: str, password: str, namespace: Optional[str] = None):
-        """
-        Store Kubeflow credentials in the session.
-        
-        Args:
-            username: Kubeflow username
-            password: Kubeflow password
-            namespace: Optional Kubeflow namespace
-        """
-        credentials = {
-            "username": username,
-            "password": password,
-            "namespace": namespace
-        }
-        cl.user_session.set("kubeflow_credentials", credentials)
-        logger.info("Kubeflow credentials stored in session")
-        # Also update namespace if provided
-        if namespace:
-            UserSessionManager.set_kubeflow_namespace(namespace)
-    
-    @staticmethod
-    def get_kubeflow_credentials() -> Optional[Dict[str, str]]:
-        """Retrieve Kubeflow credentials from the session."""
-        return cl.user_session.get("kubeflow_credentials")
-    
-    @staticmethod
-    def has_kubeflow_credentials() -> bool:
-        """Check if Kubeflow credentials exist in the session."""
-        creds = UserSessionManager.get_kubeflow_credentials()
-        if not creds:
-            return False
-        # Check if username and password are present
-        return bool(creds.get("username") and creds.get("password"))
-    
-    @staticmethod
-    def clear_kubeflow_credentials():
-        """Clear Kubeflow credentials from the session."""
-        cl.user_session.set("kubeflow_credentials", None)
-        logger.info("Kubeflow credentials cleared from session")
-    
+
     @staticmethod
     def extract_and_store_namespace():
         """
@@ -305,8 +263,7 @@ class UserSessionManager:
         oauth_token = UserSessionManager.get_oauth_token()
         if not oauth_token:
             logger.warning("No OAuth token available to extract namespace")
-            # Set default namespace
-            UserSessionManager.set_kubeflow_namespace("kubeflow")
+            UserSessionManager.set_kubeflow_namespace(None)
             return
         
         try:
@@ -315,8 +272,7 @@ class UserSessionManager:
             logger.info(f"Extracted namespace from token: {namespace}")
         except Exception as e:
             logger.error(f"Failed to extract namespace from token: {str(e)}")
-            # Set default namespace as fallback
-            UserSessionManager.set_kubeflow_namespace("kubeflow")
+            UserSessionManager.set_kubeflow_namespace(None)
     
     # User Roles Management
     @staticmethod

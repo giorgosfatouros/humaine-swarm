@@ -77,7 +77,7 @@ All MinIO tools use a **user-scoped client**: **`get_user_minio_client()`** in c
 
 ### Kubeflow
 
-Kubeflow tools use **`get_user_kubeflow_client()`** in code.py: it prefers session-stored credentials (username/password); if missing, it can **prompt the user** via Chainlit for Kubeflow username/password/namespace, then creates a client via **`get_kubeflow_client()`** in helper_functions. The client is built by **`KFPClientManager`**: Dex login (session cookies), then `kfp.Client(host, cookies, namespace)`.
+Kubeflow tools use **`get_user_kubeflow_client()`** in code.py: it reads the session Keycloak bearer token and optional namespace, then creates a client via **`get_kubeflow_client()`** in helper_functions (`kfp.Client(host, existing_token=..., namespace=...)`). A missing token raises **ValueError**; there is no username/password prompt.
 
 - **get_kf_pipelines**, **get_pipeline_details**, **get_pipeline_version_details**, **run_pipeline**, **list_runs**, **get_run_details**, **list_experiments**, **get_experiment_details**, **get_user_kubeflow_namespace**, **create_experiment**, **get_pipeline_id** — All implemented in code.py; delegate to the KFP client and map responses to dicts.
 

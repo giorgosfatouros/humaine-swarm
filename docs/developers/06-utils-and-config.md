@@ -77,10 +77,9 @@ Used in [classes/user_handler.py](../../classes/user_handler.py) for message-his
 
 ### Kubeflow
 
-- **extract_user_namespace_from_token(access_token)**: Decodes JWT (no verify), extracts namespace from claims/groups/roles/preferred_username; default "kubeflow".
-- **KFPClientManager**: Holds api_url, skip_tls_verify, Dex username/password, auth_type ("local" or "ldap"). **`_get_session_cookies()`**: Performs Dex login flow (GET redirects, POST login, optional approval); returns cookie string. **`create_kfp_client(namespace=None)`**: Gets cookies, (optionally) patches kfp.Client for SSL, returns **kfp.Client(host, cookies, namespace)**.
-- **get_kubeflow_client(user_namespace, user_token, user_username, user_password)**: Instantiates KFPClientManager with KUBEFLOW_HOST and Dex credentials (user_username, user_password from params; empty string if not provided), then **create_kfp_client(namespace=user_namespace)**.
-- **get_kubeflow_old_client**: Legacy helper; not used by the main app path.
+- **extract_user_namespace_from_token(access_token)**: Decodes JWT (no verify), extracts namespace from claims/groups/roles starting with `kubeflow-`. Does **not** invent a namespace from email. Returns `None` when no claim is present (unscoped / all-namespaces listing).
+- **normalize_kubeflow_host(host)**: Ensures `KUBEFLOW_HOST` ends with `/pipeline` (the Pipelines API, not the dashboard).
+- **get_kubeflow_client(user_namespace, user_token)**: Bearer-only. Requires **user_token** and builds **kfp.Client(existing_token=...)** with normal TLS certificate verification. Raises **ValueError** if the token is missing.
 
 ### Artifact helpers (KFP DSL)
 

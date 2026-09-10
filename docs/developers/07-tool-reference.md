@@ -5,7 +5,7 @@ Quick lookup for developers. Implementation: [agents/code.py](../../agents/code.
 | Tool name | Purpose | Required params | Implementation | Dependency |
 |-----------|---------|------------------|-----------------|------------|
 | get_docs | RAG over project/Kubeflow docs | query | get_docs | Pinecone index (LlamaIndex) |
-| get_kf_pipelines | List Kubeflow pipelines | — | get_kf_pipelines | Kubeflow client (Dex) |
+| get_kf_pipelines | List Kubeflow pipelines | — | get_kf_pipelines | Kubeflow client (Keycloak bearer) |
 | get_minio_info | List objects in a bucket | bucket_name | get_minio_info | MinIO client (user) |
 | get_pipeline_details | Pipeline definition by ID | pipeline_id | get_pipeline_details | Kubeflow client |
 | get_pipeline_version_details | Pipeline version (spec, components, params) | pipeline_id, pipeline_version_id | get_pipeline_version_details | Kubeflow client |
@@ -26,4 +26,4 @@ Quick lookup for developers. Implementation: [agents/code.py](../../agents/code.
 | plot_data | Build Plotly chart from data | data | plot_data | None (Plotly); app.py renders result |
 | query_haic_benchmark | Fetch pilot's HAIC evaluation results | action | query_haic_benchmark | HAIC API (`HAIC_BASE_URL`); pilot map in utils/haic_pilot_map.py |
 
-**Dependency key**: “MinIO client (user)” = `get_user_minio_client()` → UserSessionManager MinIO credentials. “Kubeflow client” = `get_user_kubeflow_client()` (Dex; may prompt for credentials). “Pinecone index” = LlamaIndex VectorStoreIndex over Pinecone (PINECONE_INDEX). “HAIC API” = public read API at `HAIC_BASE_URL`; access scoped per user via static pilot map.
+**Dependency key**: “MinIO client (user)” = `get_user_minio_client()` → UserSessionManager MinIO credentials. “Kubeflow client” = `get_user_kubeflow_client()` (Keycloak bearer token from the session). “Pinecone index” = LlamaIndex VectorStoreIndex over Pinecone (PINECONE_INDEX). “HAIC API” = public read API at `HAIC_BASE_URL`; access scoped per user via static pilot map.
