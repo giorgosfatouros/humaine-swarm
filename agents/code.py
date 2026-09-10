@@ -948,69 +948,157 @@ async def compare_pipeline_runs(
         logger.error(f"Error comparing pipeline runs: {str(e)}")
         return {"error": str(e)}
 
+def resolve_kubeflow_shared_namespace(raw: Optional[str] = None) -> Optional[str]:
+    """Return explicit shared namespace, or None for unscoped list_pipelines."""
+    value = (raw if raw is not None else KUBEFLOW_SHARED_NAMESPACE).strip()
+    return value or None
+
+
+def _kubeflow_pipeline_queries(
+    user_namespace: Optional[str],
+    include_shared: bool = True,
+) -> list[tuple[Optional[str], str, str]]:
+    """Return (api_namespace, label, namespace_type) targets for pipeline listing."""
+    queries: list[tuple[Optional[str], str, str]] = []
+    shared_api = resolve_kubeflow_shared_namespace()
+    shared_label = shared_api or ""
+
+    if user_namespace:
+        queries.append((user_namespace, user_namespace, "private"))
+
+    if not include_shared:
+        return queries
+
+    if user_namespace and shared_api and user_namespace == shared_api:
+        return queries
+
+    if shared_api is None:
+        queries.append((None, "", "shared"))
+    else:
+        queries.append((shared_api, shared_label, "shared"))
+
+    return queries
+
+
+def _merge_pipeline_listings(
+    namespace_responses: list[tuple[str, str, list]],
+) -> list[Dict[str, str]]:
+    """Flatten pipeline listings and tag each row with namespace provenance."""
+    merged: list[Dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+
+    for label, namespace_type, pipelines in namespace_responses:
+        for pipeline in pipelines:
+            pipeline_namespace = (
+                getattr(pipeline, "namespace", None)
+                or label
+                or ""
+            )
+            pipeline_id = pipeline.pipeline_id
+            key = (pipeline_namespace, pipeline_id)
+            if key in seen:
+                continue
+            seen.add(key)
+            merged.append({
+                "id": pipeline_id,
+                "name": pipeline.display_name,
+                "description": pipeline.description,
+                "created_at": str(pipeline.created_at),
+                "namespace": pipeline_namespace,
+                "namespace_type": namespace_type,
+            })
+
+    return merged
+
+
 # Kubeflow
 @cl.step(type="tool", name="Kubeflow Pipelines", show_input=False)
 async def get_kf_pipelines(
-    search_term: Optional[str] = None, 
-    page_size: int = 20, 
+    search_term: Optional[str] = None,
+    page_size: int = 20,
     page_token: str = "",
-    sort_by: str = "created_at desc"
+    sort_by: str = "created_at desc",
+    include_shared: bool = True,
 ) -> Dict:
     """
-    Retrieve information about the user's Kubeflow pipelines with flexible search capabilities.
-    
+    Retrieve Kubeflow pipelines from the user's private namespace and the shared catalog.
+
     Args:
         search_term: Optional term to search for in pipeline names (case-insensitive partial match)
         page_size: Number of results to return per page (default: 20)
-        page_token: Token for pagination (default: empty string for first page)
+        page_token: Token for pagination of the private namespace (default: empty string for first page)
         sort_by: How to sort results (default: created_at desc - newest first)
-        
+        include_shared: Whether to include the shared/default catalog (default: True)
+
     Returns:
-        Dict containing filtered pipeline information
+        Dict containing filtered pipeline information from private and shared namespaces
     """
     try:
         kf_client = await get_user_kubeflow_client()
 
-        namespace = UserSessionManager.get_kubeflow_namespace() or os.getenv('KUBEFLOW_NAMESPACE')
-        
-        # Get pipelines without filter - we'll filter on the client side
-        response = kf_client.list_pipelines(
-            page_token=page_token,
-            page_size=page_size,
-            sort_by=sort_by,
-            namespace=namespace
-        )
-        
-        # Extract pipeline data
-        pipelines = response.pipelines or []
-        
-        # Filter pipelines by search term if provided
-        filtered_pipelines = pipelines
+        user_namespace = UserSessionManager.get_kubeflow_namespace()
+        shared_api = resolve_kubeflow_shared_namespace()
+        shared_label = shared_api or ""
+        queries = _kubeflow_pipeline_queries(user_namespace, include_shared)
+
+        namespace_responses: list[tuple[str, str, list]] = []
+        next_page_token = None
+
+        for api_namespace, label, namespace_type in queries:
+            is_paginated_query = namespace_type == "private" or not user_namespace
+            if not is_paginated_query and page_token:
+                continue
+
+            response = kf_client.list_pipelines(
+                page_token=page_token if is_paginated_query else "",
+                page_size=page_size,
+                sort_by=sort_by,
+                namespace=api_namespace,
+            )
+            listed = response.pipelines or []
+            logger.info(
+                "Listed %s Kubeflow pipelines for namespace=%r (%s)",
+                len(listed),
+                api_namespace,
+                namespace_type,
+            )
+            if is_paginated_query:
+                next_page_token = response.next_page_token
+
+            namespace_responses.append((label, namespace_type, listed))
+
+        pipelines = _merge_pipeline_listings(namespace_responses)
+
         if search_term and search_term.strip():
             search_term_lower = search_term.lower()
-            filtered_pipelines = [
-                p for p in pipelines 
-                if (p.display_name and search_term_lower in p.display_name.lower()) or
-                   (p.description and search_term_lower in p.description.lower())
+            pipelines = [
+                pipeline
+                for pipeline in pipelines
+                if (pipeline.get("name") and search_term_lower in pipeline["name"].lower())
+                or (
+                    pipeline.get("description")
+                    and search_term_lower in pipeline["description"].lower()
+                )
             ]
-        
-        # Build response
-        result = {
-            "total_pipelines": len(filtered_pipelines),
-            "total_available": len(pipelines),
-            "next_page_token": response.next_page_token,
-            "namespace_type": "private" if namespace else "shared",
-            "namespace": namespace or "shared",
-            "pipelines": [{
-                "id": p.pipeline_id,
-                "name": p.display_name,
-                "description": p.description,
-                "created_at": str(p.created_at)
-            } for p in filtered_pipelines]
+
+        private_pipeline_count = sum(
+            1 for pipeline in pipelines if pipeline["namespace_type"] == "private"
+        )
+        shared_pipeline_count = sum(
+            1 for pipeline in pipelines if pipeline["namespace_type"] == "shared"
+        )
+
+        return {
+            "user_namespace": user_namespace or "",
+            "shared_namespace": shared_label,
+            "namespaces_queried": [label for _, label, _ in queries],
+            "total_pipelines": len(pipelines),
+            "private_pipeline_count": private_pipeline_count,
+            "shared_pipeline_count": shared_pipeline_count,
+            "next_page_token": next_page_token,
+            "pipelines": pipelines,
         }
-        
-        return result
-            
+
     except Exception as e:
         logger.error(f"Error retrieving Kubeflow information: {str(e)}")
         return {"error": str(e)}

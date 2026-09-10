@@ -1,12 +1,10 @@
 import os
 
-# Kubeflow connection settings (base URL only - user credentials via OAuth)
+# Kubeflow connection settings (base URL only — auth is the Keycloak bearer token)
 KUBEFLOW_HOST = os.environ.get("KUBEFLOW_HOST", "http://huanew-kubeflow.ddns.net/pipeline")
-
-# Legacy: Kept for backward compatibility during development
-# These should not be used in production - use OAuth instead
-# KUBEFLOW_USERNAME and KUBEFLOW_PASSWORD from env vars (optional fallback)
-# KUBEFLOW_NAMESPACE per-user from OAuth token
+# Empty string (default) = shared catalog via list_pipelines(namespace=None).
+# Set explicitly (e.g. "kubeflow") only if shared pipelines live in a named namespace.
+KUBEFLOW_SHARED_NAMESPACE = os.environ.get("KUBEFLOW_SHARED_NAMESPACE", "")
 
 # HAIC Benchmark Suite settings
 HAIC_BASE_URL = os.environ.get(

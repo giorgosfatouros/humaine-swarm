@@ -9,6 +9,7 @@
 | Name | Env var | Default / note |
 |------|---------|----------------|
 | KUBEFLOW_HOST | KUBEFLOW_HOST | `http://huanew-kubeflow.ddns.net/pipeline` |
+| KUBEFLOW_SHARED_NAMESPACE | KUBEFLOW_SHARED_NAMESPACE | `""` (empty = unscoped shared catalog via `list_pipelines(namespace=None)`) |
 | MINIO_ENDPOINT | MINIO_ENDPOINT | `s3-minio.humaine-horizon.eu` |
 | MINIO_SECURE | MINIO_SECURE | `"true"` → True |
 | MINIO_API_ENDPOINT | MINIO_API_ENDPOINT | None |

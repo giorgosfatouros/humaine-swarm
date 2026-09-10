@@ -100,7 +100,7 @@ functions = [
         "type": "function",
         "function": {
             "name": "get_kf_pipelines",
-            "description": "Retrieve basic Kubeflow pipeline listings (pipeline registry info only, NOT artifacts or actual results)",
+            "description": "List Kubeflow pipeline registry entries (not artifacts or run results). By default returns pipelines from the user's private namespace plus the shared HumAIne catalog. Each pipeline includes namespace and namespace_type (private or shared). Ready-to-use templates often appear under namespace_type shared.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -115,13 +115,18 @@ functions = [
                     },
                     "page_token": {
                         "type": "string",
-                        "description": "Token for pagination (default: empty string for first page)",
+                        "description": "Token for pagination of the private namespace only (default: empty string for first page)",
                         "default": ""
                     },
                     "sort_by": {
                         "type": "string",
                         "description": "How to sort results (default: created_at desc - newest first)",
                         "default": "created_at desc"
+                    },
+                    "include_shared": {
+                        "type": "boolean",
+                        "description": "Include the shared/default HumAIne pipeline catalog in addition to the user's private namespace (default: true)",
+                        "default": True
                     }
                 },
                 "required": [],
