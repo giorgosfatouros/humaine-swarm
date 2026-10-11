@@ -141,3 +141,9 @@ docker-compose*.yml
 # *.md
 # docs/
 
+
+# Local-only folders
+evaluation/
+.wordpress/
+.files/
+.tmp/

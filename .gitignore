@@ -189,3 +189,9 @@ transcript_stt.py
 notebooks/
 
 data/
+
+# WordPress / marketing drafts (local only)
+.wordpress/
+
+# Local evaluation runs and pilot snapshots (not published)
+evaluation/
