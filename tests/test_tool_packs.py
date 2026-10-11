@@ -121,3 +121,10 @@ def test_all_definition_tools_are_covered_by_packs():
     pack_tools = get_enabled_tool_names(TOOL_PACKS.keys())
     defined = _function_names(functions)
     assert pack_tools == defined
+
+
+def test_smart_cities_prompt_requires_direct_analysis_call():
+    # Eval SC-03: the model stopped at a storage listing instead of calling the analysis tool.
+    prompt = build_system_prompt(["smart_cities", "storage"])
+    assert "call `analyze_smart_cities_data` directly" in prompt
+    assert "Never answer questions about pickle contents" in prompt

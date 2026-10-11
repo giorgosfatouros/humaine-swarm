@@ -130,6 +130,32 @@ class TestHaicRouting(unittest.TestCase):
     def test_conceptual_not_routed(self):
         self.assertIsNone(detect_haic_live_query("What does HCL mean in the HAIC framework?"))
 
+    def test_documentation_question_not_routed(self):
+        # Eval RAG-04: a docs question mentioning "HAIC metrics" must reach get_docs.
+        self.assertIsNone(detect_haic_live_query(
+            "How many core HAIC metrics are listed in the HAIC metrics reference summary table? Name them."
+        ))
+
+    def test_conceptual_metric_question_not_routed(self):
+        # Eval RAG-02: "Trust Proxy ... metric in HAIC" is a docs question without "my".
+        self.assertIsNone(detect_haic_live_query(
+            "What is the Trust Proxy (Tr) metric in HAIC and what is its value range?"
+        ))
+
+    def test_action_or_other_domain_not_routed(self):
+        # Eval HAIC-05 / MFG-05: let the LLM decline instead of returning stored scores.
+        self.assertIsNone(detect_haic_live_query("Deploy a new Kubeflow pipeline from my HAIC scores."))
+        self.assertIsNone(detect_haic_live_query("What are my HAIC Trust scores for manufacturing?"))
+
+    def test_eval_live_prompts_still_routed(self):
+        for prompt in (
+            "Show my HAIC benchmark runs for my Smart Cities evaluation.",
+            "What are my aggregate HAIC scores (Trust, HCL, F, D) for Smart Cities?",
+            "Compare my HAIC results across the three AI model versions for Smart Cities.",
+            "Summarize my HAIC collaboration metrics for the Novoville screener.",
+        ):
+            self.assertEqual(detect_haic_live_query(prompt), "get_holistic")
+
     def test_minio_style_query_without_haic(self):
         self.assertIsNone(detect_haic_live_query("what data do I have in my buckets?"))
 

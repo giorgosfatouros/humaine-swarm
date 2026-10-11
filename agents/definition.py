@@ -138,7 +138,7 @@ functions = [
         "type": "function",
         "function": {
             "name": "get_minio_info",
-            "description": "Retrieve information about objects in a specific MinIO bucket",
+            "description": "List object names, sizes and dates in a specific MinIO bucket. This does NOT read file contents: for statistics or comparisons on Smart Cities pickle files use analyze_smart_cities_data or compare_smart_cities_files instead.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -718,7 +718,7 @@ functions = [
         "type": "function",
         "function": {
             "name": "analyze_smart_cities_data",
-            "description": "Analyze Smart Cities pilot application data from pickle files stored in MinIO. Provides insights on error types, AI decisions, operator decisions, and processing performance. This tool is only available to authorized Smart Cities pilot users. If file path is incorrect, returns available_files with correct paths organized by type. IMPORTANT: Use EXACT paths from list_user_buckets() data_files - do not guess or modify paths.",
+            "description": "Analyze Smart Cities pilot application data from pickle files stored in MinIO. Provides insights on error types, AI decisions, operator decisions, and processing performance. This tool is only available to authorized Smart Cities pilot users. If file path is incorrect, returns available_files with correct paths organized by type. Call this tool directly when the user names a pickle file (e.g. processing time statistics for sim-pilot-apps-v0.pkl); do not stop at a bucket listing. IMPORTANT: Use EXACT paths from list_user_buckets() data_files - do not guess or modify paths.",
             "parameters": {
                 "type": "object",
                 "properties": {
