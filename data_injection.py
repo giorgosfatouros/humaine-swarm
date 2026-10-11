@@ -6,7 +6,6 @@ import time
 from typing import List, Optional
 
 import pandas as pd
-from langchain_experimental.text_splitter import SemanticChunker
 from langchain_openai.embeddings import OpenAIEmbeddings
 from langchain_text_splitters import MarkdownHeaderTextSplitter, RecursiveCharacterTextSplitter
 from pinecone import Pinecone, ServerlessSpec
@@ -18,6 +17,8 @@ logger = setup_logging("Data Injection", level=logging.INFO)
 
 EMBED_MODEL = "text-embedding-3-small"
 INDEX_NAME = "humaine"
+CHUNK_SIZE = 1200
+CHUNK_OVERLAP = 150
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 pc = Pinecone(api_key=PINECONE_API_KEY)
 embedding_model = OpenAIEmbeddings(model=EMBED_MODEL)
@@ -62,11 +63,14 @@ def process_data(
     sources: Optional[List[str]] = None,
     docs_dir: str = ".docs",
     md_dir: str = ".md_files",
+    reset: bool = False,
 ):
     sources = sources or ["pdf", "md"]
-    logger.info("Starting data processing (sources=%s)", sources)
+    logger.info("Starting data processing (sources=%s, reset=%s)", sources, reset)
 
-    if "md" in sources:
+    if reset:
+        reset_index()
+    elif "md" in sources:
         delete_legacy_haic_vectors()
 
     df = get_deliverables(sources=sources, docs_dir=docs_dir, md_dir=md_dir)
@@ -75,6 +79,7 @@ def process_data(
         return
 
     save_to_pinecone(df)
+    log_index_summary(df)
     logger.info("Data processing completed successfully")
 
 
@@ -83,7 +88,7 @@ def get_embeddings(text_list) -> List[List[float]]:
         return embedding_model.embed_documents(text_list)
     except Exception as e:
         logger.error(f"Error generating embeddings: {e}")
-        return []
+        raise
 
 
 def load_pdf_documents(docs_dir: str = ".docs") -> pd.DataFrame:
@@ -206,26 +211,21 @@ def get_deliverables(
 
 def chunk_pdf_documents(row) -> list:
     chunked_data = []
-    text_splitter = SemanticChunker(
-        embedding_model,
-        breakpoint_threshold_type="gradient",
-        min_chunk_size=3000,
-        breakpoint_threshold_amount=0.8,
-    )
-    text = row["text"]
+    text = " ".join((row["text"] or "").split())
     if not text:
         return chunked_data
 
     topic = DOC_TOPIC_BY_DOC_ID.get(row["doc_id"], "")
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP
+    )
 
     try:
-        docs = text_splitter.create_documents([text])
-        for i, doc in enumerate(docs):
-            chunk_id = f"{row['doc_id']}_chunk_{i}".replace(" ", "_")
+        for i, chunk in enumerate(splitter.split_text(text)):
             chunked_data.append(
                 {
-                    "id": chunk_id,
-                    "chunk_text": doc.page_content,
+                    "id": f"{row['doc_id']}_chunk_{i}".replace(" ", "_"),
+                    "chunk_text": f"[PDF | {row['title']}]\n{chunk}",
                     "title": row["title"],
                     "source": row["source"],
                     "doc_id": row["doc_id"],
@@ -248,7 +248,7 @@ def chunk_markdown(row) -> list:
         headers_to_split_on=MARKDOWN_HEADERS, strip_headers=False
     )
     fallback_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=1200, chunk_overlap=150
+        chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP
     )
 
     try:
@@ -258,7 +258,7 @@ def chunk_markdown(row) -> list:
                 v for k, v in sorted(doc.metadata.items()) if v
             ) or "document"
             body = doc.page_content.strip()
-            if len(body) > 1200:
+            if len(body) > CHUNK_SIZE:
                 sub_docs = fallback_splitter.create_documents([body])
                 for j, sub in enumerate(sub_docs):
                     chunk_text = format_md_chunk(row["title"], section, sub.page_content)
@@ -319,19 +319,19 @@ def delete_md_vectors_for_doc(doc_id: str) -> None:
 
 
 def save_to_pinecone(df):
-    try:
-        spec = ServerlessSpec(cloud="aws", region="us-east-1")
-        check_and_create_index(INDEX_NAME, len(df["embeddings"].iloc[0]), spec)
+    spec = ServerlessSpec(cloud="aws", region="us-east-1")
+    check_and_create_index(INDEX_NAME, len(df["embeddings"].iloc[0]), spec)
 
-        index = pc.Index(INDEX_NAME)
-        time.sleep(1)
-        logger.info(index.describe_index_stats())
+    index = pc.Index(INDEX_NAME)
+    time.sleep(1)
+    logger.info(index.describe_index_stats())
 
-        batch_size = 32
-        for i in tqdm(range(0, len(df), batch_size)):
-            i_end = min(i + batch_size, len(df))
+    batch_size = 32
+    failed = []
+    for i in tqdm(range(0, len(df), batch_size)):
+        i_end = min(i + batch_size, len(df))
+        try:
             ids_batch = df["id"].iloc[i:i_end].tolist()
-
             metadata = [
                 {
                     "title": df.loc[j, "title"],
@@ -342,12 +342,28 @@ def save_to_pinecone(df):
                 }
                 for j in range(i, i_end)
             ]
-
             to_upsert = zip(ids_batch, df["embeddings"].iloc[i:i_end].tolist(), metadata)
             index.upsert(vectors=list(to_upsert))
+        except Exception as e:
+            logger.error("Upsert failed for rows %d-%d: %s", i, i_end, e)
+            failed.append((i, i_end))
 
-    except Exception as e:
-        logger.error(f"Error saving to Pinecone: {e}")
+    if failed:
+        raise RuntimeError(f"Failed to upsert {len(failed)} batch(es): {failed}")
+
+
+def reset_index() -> None:
+    """Delete every vector in the index (full rebuild)."""
+    pc.Index(INDEX_NAME).delete(delete_all=True)
+    logger.warning("Deleted all vectors from index %s", INDEX_NAME)
+
+
+def log_index_summary(df) -> None:
+    index = pc.Index(INDEX_NAME)
+    time.sleep(2)
+    logger.info("Index stats: %s", index.describe_index_stats())
+    for doc_id, n in df.groupby("doc_id").size().items():
+        logger.info("  %s: %d chunks", doc_id, n)
 
 
 def check_and_create_index(index_name, dimension, spec):
@@ -397,6 +413,16 @@ if __name__ == "__main__":
         default=".md_files",
         help="Directory containing markdown documents (default: .md_files)",
     )
+    parser.add_argument(
+        "--reset",
+        action="store_true",
+        help="Delete ALL existing vectors in the index before ingesting",
+    )
     args = parser.parse_args()
 
-    process_data(sources=args.sources, docs_dir=args.docs_dir, md_dir=args.md_dir)
+    process_data(
+        sources=args.sources,
+        docs_dir=args.docs_dir,
+        md_dir=args.md_dir,
+        reset=args.reset,
+    )
