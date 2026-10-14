@@ -53,7 +53,7 @@ graph TB
 
 - **Request**: User message → Chainlit → `main()` in app.py → message history updated → `client.responses.create(..., stream=True)` with `build_responses_input(message_history)`, `instructions`, and `settings` (includes `tools` from agents/definition.py).
 - **Response**: Stream consumed in `process_responses_stream()`; `response.output_text.delta` events streamed to UI; `function_call` items accumulated, validated (JSON), executed concurrently via `function_map`; `function_call` / `function_call_output` items appended to history; if any tool ran, follow-up response; optional Plotly elements for `plot_data`.
-- **Session**: Per-user state in Chainlit; OAuth token and MinIO credentials (from Keycloak STS) and Kubeflow namespace (from token claims) set on chat start; tool code obtains user-scoped clients via `UserSessionManager` / helpers.
+- **Session**: Per-user state in Chainlit; OAuth token and MinIO credentials (from Keycloak STS) and Kubeflow profile namespaces (from the central dashboard `env-info`, token claim as fallback) set on chat start; tool code obtains user-scoped clients via `UserSessionManager` / helpers.
 
 ## Config and environment
 

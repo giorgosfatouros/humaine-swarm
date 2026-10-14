@@ -19,7 +19,7 @@ Quick lookup for developers. Implementation: [agents/code.py](../../agents/code.
 | list_user_buckets | List MinIO buckets available to user | — | list_user_buckets | MinIO client (user) |
 | list_experiments | List Kubeflow experiments | — | list_experiments | Kubeflow client |
 | get_experiment_details | Experiment by ID or name | experiment_id or experiment_name | get_experiment_details | Kubeflow client |
-| get_user_kubeflow_namespace | User's Kubeflow namespace | — | get_user_namespace | Kubeflow client |
+| list_kubeflow_namespaces | User's Kubeflow profile namespaces, roles and default | — | list_kubeflow_namespaces | Dashboard env-info (session) |
 | create_experiment | Create a Kubeflow experiment | name | create_experiment | Kubeflow client |
 | get_pipeline_id | Resolve pipeline ID by name | name | get_pipeline_id | Kubeflow client |
 | parse_pdf_from_minio | Download, extract text, optional summarization | bucket_name, object_path | parse_pdf_from_minio | MinIO client (user); LangChain for summarization |

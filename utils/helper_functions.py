@@ -608,6 +608,54 @@ def get_kubeflow_client(
     )
 
 
+def kubeflow_dashboard_root(host: Optional[str] = None) -> str:
+    """Return the central dashboard base URL (the KFP host without /pipeline)."""
+    pipeline_host = normalize_kubeflow_host(host or os.getenv("KUBEFLOW_HOST"))
+    if not pipeline_host:
+        raise ValueError("KUBEFLOW_HOST is not set")
+    return pipeline_host[: -len("/pipeline")]
+
+
+def fetch_kubeflow_profile_namespaces(user_token: str, timeout: float = 10.0) -> list[dict]:
+    """List the Kubeflow profile namespaces the user can access.
+
+    Calls the central dashboard ``/api/workgroup/env-info`` endpoint with the
+    Keycloak bearer token. Profile membership (owner/contributor bindings) is
+    not part of the Keycloak token, so this is the only reliable source.
+
+    Returns:
+        A list of ``{"namespace": str, "role": str}`` dicts (may be empty).
+
+    Raises:
+        requests.RequestException / ValueError: if the dashboard cannot be queried.
+    """
+    url = f"{kubeflow_dashboard_root()}/api/workgroup/env-info"
+    response = requests.get(
+        url,
+        headers={"Authorization": f"Bearer {user_token}"},
+        timeout=timeout,
+        allow_redirects=False,
+    )
+    if response.status_code != 200:
+        raise ValueError(
+            f"Kubeflow dashboard env-info returned HTTP {response.status_code}"
+        )
+    namespaces = []
+    for entry in response.json().get("namespaces") or []:
+        name = entry.get("namespace")
+        if name:
+            namespaces.append({"namespace": name, "role": entry.get("role") or ""})
+    return namespaces
+
+
+def select_default_kubeflow_namespace(namespaces: list[dict]) -> Optional[str]:
+    """Pick the default namespace: the one the user owns, else the first listed."""
+    for entry in namespaces:
+        if entry.get("role") == "owner":
+            return entry["namespace"]
+    return namespaces[0]["namespace"] if namespaces else None
+
+
 # New functions for artifact metadata handling
 
 def create_dataset_artifact(uri: str, metadata: Dict[str, Any] = None) -> Dataset:

@@ -75,4 +75,6 @@ async def refresh_oauth_for_user(user: cl.User) -> bool:
     except Exception as exc:
         logger.error("Failed to extract token information: %s", exc)
 
+    await UserSessionManager.discover_and_store_kubeflow_namespaces()
+
     return True

@@ -94,6 +94,42 @@ async def get_user_kubeflow_client() -> kfp.Client:
         ) from exc
 
 
+def resolve_kubeflow_namespace(requested: Optional[str] = None) -> tuple[Optional[str], Optional[str]]:
+    """Pick the namespace for a namespaced KFP call (runs, experiments).
+
+    Kubeflow runs in multi-user mode, so an empty namespace is always rejected.
+    An explicit namespace must be one the user can access, when that list is known.
+
+    Returns:
+        (namespace, None) on success, or (None, error message) otherwise.
+    """
+    namespaces = UserSessionManager.get_kubeflow_namespaces()
+    allowed = [n["namespace"] for n in namespaces] if namespaces is not None else None
+    requested = (requested or "").strip() or None
+
+    if requested:
+        if allowed is not None and requested not in allowed:
+            return None, (
+                f"You do not have access to Kubeflow namespace '{requested}'. "
+                f"Accessible namespaces: {', '.join(allowed) or 'none'}."
+            )
+        return requested, None
+
+    namespace = UserSessionManager.get_kubeflow_namespace()
+    if namespace:
+        return namespace, None
+    if allowed == []:
+        return None, (
+            "Your account has no Kubeflow profile namespace, so runs and experiments "
+            "cannot be listed or created. Ask a Kubeflow administrator to add you "
+            "to a profile namespace."
+        )
+    return None, (
+        "Could not determine your Kubeflow namespace. Pass a namespace explicitly "
+        "or call list_kubeflow_namespaces."
+    )
+
+
 
 
 def read_prompt(type: str):
@@ -1346,9 +1382,9 @@ async def list_runs(
     try:
         kf_client = await get_user_kubeflow_client()
         
-        # Use user's namespace if not explicitly provided
-        if not namespace:
-            namespace = UserSessionManager.get_kubeflow_namespace()
+        namespace, namespace_error = resolve_kubeflow_namespace(namespace)
+        if namespace_error:
+            return {"error": namespace_error}
         
         # Get runs with API-level filtering
         filter_str = None
@@ -1390,7 +1426,7 @@ async def list_runs(
             "total_available": len(runs),
             "next_page_token": response.next_page_token,
             "experiment_id": experiment_id,
-            "namespace": namespace or "default",
+            "namespace": namespace,
             "runs": [{
                 "id": r.run_id,
                 "name": r.display_name,
@@ -1482,9 +1518,9 @@ async def list_experiments(
     try:
         kf_client = await get_user_kubeflow_client()
         
-        # Use user's namespace if not explicitly provided
-        if not namespace:
-            namespace = UserSessionManager.get_kubeflow_namespace()
+        namespace, namespace_error = resolve_kubeflow_namespace(namespace)
+        if namespace_error:
+            return {"error": namespace_error}
         
         # Create filter if search term is provided
         filter_str = None
@@ -1525,7 +1561,7 @@ async def list_experiments(
             "total_experiments": len(filtered_experiments),
             "total_available": len(experiments),
             "next_page_token": response.next_page_token,
-            "namespace": namespace or "default",
+            "namespace": namespace,
             "experiments": [{
                 "id": e.experiment_id,
                 "name": e.display_name,
@@ -1563,9 +1599,9 @@ async def get_experiment_details(
             
         kf_client = await get_user_kubeflow_client()
         
-        # Use user's namespace if not explicitly provided
-        if not namespace:
-            namespace = UserSessionManager.get_kubeflow_namespace()
+        namespace, namespace_error = resolve_kubeflow_namespace(namespace)
+        if namespace_error:
+            return {"error": namespace_error}
         
         # Get experiment details
         experiment = kf_client.get_experiment(
@@ -1580,7 +1616,7 @@ async def get_experiment_details(
             "name": experiment.display_name,
             "description": experiment.description,
             "created_at": str(experiment.created_at),
-            "namespace": namespace or "default" if namespace else experiment.namespace if hasattr(experiment, 'namespace') else "default",
+            "namespace": namespace,
             "storage_state": experiment.storage_state if hasattr(experiment, 'storage_state') else None
         }
         
@@ -1588,6 +1624,7 @@ async def get_experiment_details(
         try:
             runs_response = kf_client.list_runs(
                 experiment_id=experiment.experiment_id,
+                namespace=namespace,
                 page_size=10,  # Limit to 10 most recent runs
                 sort_by="created_at desc"
             )
@@ -1610,25 +1647,34 @@ async def get_experiment_details(
         logger.error(f"Error retrieving Kubeflow experiment details: {str(e)}")
         return {"error": str(e)}
 
-@cl.step(type="tool", name="Get User Namespace", show_input=False)
-async def get_user_namespace() -> Dict:
+@cl.step(type="tool", name="List Kubeflow Namespaces", show_input=False)
+async def list_kubeflow_namespaces() -> Dict:
     """
-    Gets user namespace in context config.
-    
+    List the Kubeflow profile namespaces the user can access, with their role.
+
     Returns:
-        Dict containing the Kubernetes namespace from the local context file or empty if it wasn't set
+        Dict with the accessible namespaces and the session default namespace
     """
     try:
-        kf_client = await get_user_kubeflow_client()
-        namespace = kf_client.get_user_namespace()
-        
+        namespaces = UserSessionManager.get_kubeflow_namespaces()
+        if namespaces is None:
+            await UserSessionManager.discover_and_store_kubeflow_namespaces()
+            namespaces = UserSessionManager.get_kubeflow_namespaces()
+        if namespaces is None:
+            return {"error": "Could not reach the Kubeflow dashboard to list your namespaces."}
+
         return {
-            "namespace": namespace if namespace else "",
-            "message": "Namespace retrieved successfully" if namespace else "No namespace found in context"
+            "namespaces": namespaces,
+            "default_namespace": UserSessionManager.get_kubeflow_namespace() or "",
+            "message": (
+                f"{len(namespaces)} accessible namespace(s)"
+                if namespaces
+                else "Your account has no Kubeflow profile namespace."
+            ),
         }
-            
+
     except Exception as e:
-        logger.error(f"Error retrieving user namespace: {str(e)}")
+        logger.error(f"Error listing Kubeflow namespaces: {str(e)}")
         return {"error": str(e)}
 
 @cl.step(type="tool", name="Create Experiment", show_input=False)
@@ -1654,9 +1700,9 @@ async def create_experiment(
             
         kf_client = await get_user_kubeflow_client()
         
-        # Use user's namespace if not explicitly provided
-        if not namespace:
-            namespace = UserSessionManager.get_kubeflow_namespace()
+        namespace, namespace_error = resolve_kubeflow_namespace(namespace)
+        if namespace_error:
+            return {"error": namespace_error}
         experiment = kf_client.create_experiment(
             name=name,
             description=description,
@@ -1668,7 +1714,7 @@ async def create_experiment(
             "id": experiment.experiment_id,
             "name": experiment.display_name,
             "description": experiment.description,
-            "namespace": namespace or experiment.namespace if hasattr(experiment, 'namespace') else "default",
+            "namespace": namespace,
             "created_at": str(experiment.created_at) if hasattr(experiment, 'created_at') else None
         }
         
@@ -3250,7 +3296,7 @@ function_map = {
     "list_user_buckets": list_user_buckets,
     "list_experiments": list_experiments,
     "get_experiment_details": get_experiment_details,
-    "get_user_kubeflow_namespace": get_user_namespace,
+    "list_kubeflow_namespaces": list_kubeflow_namespaces,
     "create_experiment": create_experiment,
     "get_pipeline_id": get_pipeline_id,
     "parse_pdf_from_minio": parse_pdf_from_minio,

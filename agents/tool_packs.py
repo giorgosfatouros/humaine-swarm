@@ -48,7 +48,7 @@ TOOL_PACKS: Dict[str, Dict[str, Any]] = {
                 "get_run_details",
                 "list_experiments",
                 "get_experiment_details",
-                "get_user_kubeflow_namespace",
+                "list_kubeflow_namespaces",
                 "create_experiment",
                 "get_pipeline_id",
             }
@@ -127,7 +127,7 @@ _PACK_PROMPT_SECTIONS: Dict[str, str] = {
   2. Response includes `data_files: {"pickle": ["sim-pilot-apps-v0.pkl"], "json": ["results.json"], "pdf": ["doc.pdf"]}`
   3. User asks "analyze sim-pilot-apps-v0" → use EXACT path "sim-pilot-apps-v0.pkl" (NOT "sim-pilot-apps-v0/...")
   4. If path fails, error returns available files - retry automatically with correct path""",
-    "kubeflow": """- **Kubeflow pipelines and runs**: Use Kubeflow tools to list pipelines, inspect definitions/versions, list runs and experiments, and execute pipelines. `get_kf_pipelines` returns both the user's private namespace and the shared HumAIne catalog by default — ready-to-use templates usually have `namespace_type: shared` (often `namespace: ""`). The private namespace may be empty. Each listed pipeline includes `namespace` and `namespace_type`; use those when explaining or running a pipeline. Be mindful of the distinction between `run_id` and `run_name`:
+    "kubeflow": """- **Kubeflow pipelines and runs**: Use Kubeflow tools to list pipelines, inspect definitions/versions, list runs and experiments, and execute pipelines. `get_kf_pipelines` returns both the user's private namespace and the shared HumAIne catalog by default — ready-to-use templates usually have `namespace_type: shared` (often `namespace: ""`). The private namespace may be empty. Each listed pipeline includes `namespace` and `namespace_type`; use those when explaining or running a pipeline. Runs and experiments always live in a user profile namespace: omit `namespace` to use the user's default, and call `list_kubeflow_namespaces` when the user asks which namespaces they have or wants a different one. Never guess a namespace (e.g. `humaine`). Be mindful of the distinction between `run_id` and `run_name`:
     - `run_id` is a unique identifier assigned by Kubeflow to a specific pipeline run instance (e.g., used with `get_run_details`).
     - `run_name` is often a string used in MinIO paths to organize artifacts, typically composed of the pipeline name and a unique run identifier/timestamp (e.g., used with `get_model_metrics`, `get_pipeline_artifacts_from_MinIO`). Always check the tool's parameter description if unsure.""",
     "smart_cities": """- **Smart Cities pilot data**: Use `analyze_smart_cities_data` and `compare_smart_cities_files` for Smart Cities pilot application pickle files in MinIO (error distributions, AI/operator decisions, processing time, confusion matrices). Use `list_user_buckets()` first for exact file paths, unless the user already names the bucket and file. When the user names a pickle file, call `analyze_smart_cities_data` directly with the matching `query_type` (processing time -> `processing_time`; AI decisions -> `ai_decisions`; operator outcomes -> `operator_decisions`; error counts -> `error_distribution`). For several files or versions call `compare_smart_cities_files`. Never answer questions about pickle contents (statistics, distributions, comparisons) from a bucket listing or `get_minio_info`: a listing shows file names only.""",

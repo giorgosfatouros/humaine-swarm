@@ -273,7 +273,58 @@ class UserSessionManager:
         except Exception as e:
             logger.error(f"Failed to extract namespace from token: {str(e)}")
             UserSessionManager.set_kubeflow_namespace(None)
-    
+
+    @staticmethod
+    def set_kubeflow_namespaces(namespaces: Optional[list]):
+        """Store the user's accessible Kubeflow namespaces (None = discovery failed)."""
+        cl.user_session.set("kubeflow_namespaces", namespaces)
+
+    @staticmethod
+    def get_kubeflow_namespaces() -> Optional[list]:
+        """Return [{"namespace", "role"}, ...], or None if discovery did not succeed."""
+        return cl.user_session.get("kubeflow_namespaces")
+
+    @staticmethod
+    async def discover_and_store_kubeflow_namespaces():
+        """
+        Discover the user's Kubeflow profile namespaces from the central dashboard
+        and make the default one the session namespace.
+
+        Keycloak tokens carry no profile membership, so the token-claim namespace
+        set by extract_and_store_namespace() is kept only as a fallback.
+        """
+        import asyncio
+        from utils.helper_functions import (
+            fetch_kubeflow_profile_namespaces,
+            select_default_kubeflow_namespace,
+        )
+
+        oauth_token = UserSessionManager.get_oauth_token()
+        if not oauth_token:
+            UserSessionManager.set_kubeflow_namespaces(None)
+            return
+
+        try:
+            namespaces = await asyncio.to_thread(
+                fetch_kubeflow_profile_namespaces, oauth_token
+            )
+        except Exception as e:
+            logger.error(f"Failed to discover Kubeflow namespaces: {str(e)}")
+            UserSessionManager.set_kubeflow_namespaces(None)
+            return
+
+        claim_namespace = UserSessionManager.get_kubeflow_namespace()
+        if claim_namespace and claim_namespace not in {n["namespace"] for n in namespaces}:
+            namespaces.append({"namespace": claim_namespace, "role": "token-claim"})
+
+        UserSessionManager.set_kubeflow_namespaces(namespaces)
+        default_namespace = select_default_kubeflow_namespace(namespaces)
+        if default_namespace:
+            UserSessionManager.set_kubeflow_namespace(default_namespace)
+        logger.info(
+            f"Kubeflow namespaces discovered: {[n['namespace'] for n in namespaces]}"
+        )
+
     # User Roles Management
     @staticmethod
     def set_user_roles(roles: list):

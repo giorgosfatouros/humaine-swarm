@@ -45,7 +45,7 @@ graph LR
         get_run_details[get_run_details]
         list_experiments[list_experiments]
         get_experiment_details[get_experiment_details]
-        get_user_namespace[get_user_kubeflow_namespace]
+        list_kubeflow_namespaces[list_kubeflow_namespaces]
         create_experiment[create_experiment]
         get_pipeline_id[get_pipeline_id]
     end
@@ -77,9 +77,9 @@ All MinIO tools use a **user-scoped client**: **`get_user_minio_client()`** in c
 
 ### Kubeflow
 
-Kubeflow tools use **`get_user_kubeflow_client()`** in code.py: it reads the session Keycloak bearer token and optional namespace, then creates a client via **`get_kubeflow_client()`** in helper_functions (`kfp.Client(host, existing_token=..., namespace=...)`). A missing token raises **ValueError**; there is no username/password prompt.
+Kubeflow tools use **`get_user_kubeflow_client()`** in code.py: it reads the session Keycloak bearer token and optional namespace, then creates a client via **`get_kubeflow_client()`** in helper_functions (`kfp.Client(host, existing_token=..., namespace=...)`). A missing token raises **ValueError**; there is no username/password prompt. Namespaced calls (runs, experiments) pick their namespace with **`resolve_kubeflow_namespace()`**, which uses the profile namespaces discovered at chat start (see [04-session-and-auth.md](04-session-and-auth.md)).
 
-- **get_kf_pipelines**, **get_pipeline_details**, **get_pipeline_version_details**, **run_pipeline**, **list_runs**, **get_run_details**, **list_experiments**, **get_experiment_details**, **get_user_kubeflow_namespace**, **create_experiment**, **get_pipeline_id** — All implemented in code.py; delegate to the KFP client and map responses to dicts.
+- **get_kf_pipelines**, **get_pipeline_details**, **get_pipeline_version_details**, **run_pipeline**, **list_runs**, **get_run_details**, **list_experiments**, **get_experiment_details**, **list_kubeflow_namespaces**, **create_experiment**, **get_pipeline_id** — All implemented in code.py; delegate to the KFP client and map responses to dicts.
 
 ### Visualization
 

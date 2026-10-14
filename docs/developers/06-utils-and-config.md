@@ -80,6 +80,8 @@ Used in [classes/user_handler.py](../../classes/user_handler.py) for message-his
 
 - **extract_user_namespace_from_token(access_token)**: Decodes JWT (no verify), extracts namespace from claims/groups/roles starting with `kubeflow-`. Does **not** invent a namespace from email. Returns `None` when no claim is present (unscoped / all-namespaces listing).
 - **normalize_kubeflow_host(host)**: Ensures `KUBEFLOW_HOST` ends with `/pipeline` (the Pipelines API, not the dashboard).
+- **fetch_kubeflow_profile_namespaces(user_token)** / **select_default_kubeflow_namespace(namespaces)**: List the user's profile namespaces via the dashboard `/api/workgroup/env-info` and pick the default (owned first).
+
 - **get_kubeflow_client(user_namespace, user_token)**: Bearer-only. Requires **user_token** and builds **kfp.Client(existing_token=...)** with normal TLS certificate verification. Raises **ValueError** if the token is missing.
 
 ### Artifact helpers (KFP DSL)

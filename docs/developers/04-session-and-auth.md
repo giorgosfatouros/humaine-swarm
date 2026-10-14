@@ -13,6 +13,7 @@
    - **MinIO credentials**: **`UserSessionManager.fetch_and_store_minio_credentials()`** is awaited. It uses **`fetch_minio_credentials_from_keycloak(oauth_token)`** in [utils/helper_functions.py](../../utils/helper_functions.py) (MinIO STS AssumeRoleWithWebIdentity), then **`set_minio_credentials(credentials)`**. On failure (e.g. expired token), session is cleared and a “session expired” message is sent; chat start returns early.
    - **Namespace**: **`UserSessionManager.extract_and_store_namespace()`** — reads namespace from token (see below) and stores it.
    - **Token metadata**: **`UserSessionManager.extract_and_store_token_info()`** — extracts policies, roles, and metadata (email, preferred_username, exp, iat, etc.) and stores them.
+   - **Kubeflow namespaces**: **`UserSessionManager.discover_and_store_kubeflow_namespaces()`** — lists the user's profile namespaces from the central dashboard and makes the default one the session namespace (see below).
 
 ## UserSessionManager
 
@@ -24,7 +25,8 @@ Implemented in [classes/user_handler.py](../../classes/user_handler.py). All sta
 | User ID | `set_user_id`, `get_user_id` | From Chainlit user (identifier, metadata email/sub/preferred_username) |
 | OAuth token | `set_oauth_token`, `get_oauth_token` | Keycloak access token |
 | MinIO credentials | `set_minio_credentials`, `get_minio_credentials`, `are_minio_credentials_valid`, `fetch_and_store_minio_credentials`, `get_or_refresh_minio_credentials` | access_key, secret_key, session_token, expiry; refresh on expiry or when “should refresh” (exp &lt; 5 min) |
-| Kubeflow namespace | `set_kubeflow_namespace`, `get_kubeflow_namespace`, `extract_and_store_namespace` | From token claims (`None` = all-namespaces listing) |
+| Kubeflow namespace | `set_kubeflow_namespace`, `get_kubeflow_namespace`, `extract_and_store_namespace` | Default namespace for runs/experiments: discovered profile namespace, else token claim |
+| Kubeflow namespaces | `set_kubeflow_namespaces`, `get_kubeflow_namespaces`, `discover_and_store_kubeflow_namespaces` | `[{"namespace", "role"}]` from dashboard `env-info`; `None` = discovery failed, `[]` = user has no profile namespace |
 | Token metadata | `set_token_metadata`, `get_token_metadata`, `extract_and_store_token_info` | exp, email, roles, policies, etc. |
 | Policies / roles | `set_user_policies`, `get_user_policies`, `set_user_roles`, `get_user_roles` | From token (MinIO policies, Keycloak roles) |
 | Groups | `set_user_groups`, `get_user_groups` | Keycloak `groups` claim (used for HAIC pilot mapping) |
@@ -53,6 +55,18 @@ In [utils/helper_functions.py](../../utils/helper_functions.py):
 - Decodes JWT with **options={"verify_signature": False}**.
 - Tries in order: **namespace** claim; **groups** entry starting with `kubeflow-`; **realm_access.roles** with `kubeflow-`; **resource_access** roles with `kubeflow-`.
 - If none match, returns **None** (do not invent `kubeflow-<email>`). Listing then uses the unscoped / “All namespaces” catalog.
+
+HumAIne Keycloak tokens carry **no** profile membership, so this is only a fallback.
+
+## Kubeflow profile namespaces (dashboard discovery)
+
+KFP runs in multi-user mode: runs and experiments **require** a profile namespace (an empty one returns HTTP 400, a namespace the user is not bound to returns 403). Profile membership (owner/contributor RoleBindings) lives in Kubernetes, not in the Keycloak token.
+
+- **`fetch_kubeflow_profile_namespaces(user_token)`** in [utils/helper_functions.py](../../utils/helper_functions.py) calls the central dashboard **`GET <dashboard>/api/workgroup/env-info`** (KUBEFLOW_HOST without `/pipeline`) with the bearer token and returns `[{"namespace", "role"}]`.
+- **`select_default_kubeflow_namespace()`** prefers the namespace the user owns, else the first listed.
+- **`discover_and_store_kubeflow_namespaces()`** runs on chat start and resume (from `refresh_oauth_for_user`). It keeps a token-claim namespace in the list and leaves the session namespace untouched if discovery fails.
+- **`resolve_kubeflow_namespace(requested)`** in [agents/code.py](../../agents/code.py) is used by `list_runs`, `list_experiments`, `get_experiment_details` and `create_experiment`: it defaults to the session namespace, rejects an explicit namespace that is not in the discovered list, and returns a clear error when the user has no profile namespace.
+- The **`list_kubeflow_namespaces`** tool exposes the list to the model.
 
 ## Kubeflow client (Keycloak bearer)
 
@@ -94,4 +108,8 @@ sequenceDiagram
     Helpers-->>Session: namespace
     Session->>Session: set_kubeflow_namespace(namespace)
     app_py->>Session: extract_and_store_token_info()
+    app_py->>Session: discover_and_store_kubeflow_namespaces()
+    Session->>Helpers: fetch_kubeflow_profile_namespaces(token)
+    Helpers-->>Session: [{namespace, role}] (dashboard env-info)
+    Session->>Session: set_kubeflow_namespaces(list), set_kubeflow_namespace(default)
 ```

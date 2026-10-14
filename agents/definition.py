@@ -270,7 +270,7 @@ functions = [
                     },
                     "namespace": {
                         "type": "string",
-                        "description": "Optional namespace to filter runs"
+                        "description": "Optional Kubeflow namespace. Omit to use the user's default namespace; must be one returned by list_kubeflow_namespaces"
                     },
                     "page_size": {
                         "type": "integer",
@@ -500,7 +500,7 @@ functions = [
                     },
                     "namespace": {
                         "type": "string",
-                        "description": "Optional namespace to filter experiments"
+                        "description": "Optional Kubeflow namespace. Omit to use the user's default namespace; must be one returned by list_kubeflow_namespaces"
                     },
                     "page_size": {
                         "type": "integer",
@@ -541,7 +541,7 @@ functions = [
                     },
                     "namespace": {
                         "type": "string",
-                        "description": "Optional namespace where the experiment is located"
+                        "description": "Optional Kubeflow namespace. Omit to use the user's default namespace; must be one returned by list_kubeflow_namespaces"
                     }
                 },
                 "required": [],
@@ -552,8 +552,8 @@ functions = [
     {
         "type": "function",
         "function": {
-            "name": "get_user_kubeflow_namespace",
-            "description": "Gets user namespace in kubeflow. It is unrelated to MinIO buckets",
+            "name": "list_kubeflow_namespaces",
+            "description": "List the Kubeflow profile namespaces the user can access (with owner/contributor role) and the default namespace used for runs and experiments. Unrelated to MinIO buckets.",
             "parameters": {
                 "type": "object",
                 "properties": {},
@@ -580,7 +580,7 @@ functions = [
                     },
                     "namespace": {
                         "type": "string",
-                        "description": "Optional Kubernetes namespace to use"
+                        "description": "Optional Kubeflow namespace. Omit to use the user's default namespace; must be one returned by list_kubeflow_namespaces"
                     }
                 },
                 "required": ["name"],
