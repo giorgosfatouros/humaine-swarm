@@ -57,7 +57,7 @@ Used in [classes/user_handler.py](../../classes/user_handler.py) for message-his
 
 ### Logging
 
-- **setup_logging(logger_name, level)**: Creates logger with console handler; level can be overridden by env **LOG_LEVEL** (DEBUG, INFO, WARNING, ERROR, CRITICAL).
+- **setup_logging(logger_name, level)**: Creates logger with console handler; level can be overridden by env **LOG_LEVEL** (DEBUG, INFO, WARNING, ERROR, CRITICAL). The logger does not propagate to the root logger (Chainlit's root handler would print every line twice). At INFO the app logs one `Session ready for <user>` line per chat start plus warnings and errors; per-call session, credential, token-claim and tool details are DEBUG.
 
 ### JWT / token (optional use)
 

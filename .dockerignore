@@ -81,7 +81,9 @@ docs/_build/
 notebooks/
 
 # Chainlit translations (if not needed in container)
-.chainlit/translations/
+.chainlit/translations/*
+# en-GB browsers otherwise log a missing-translation warning on every request
+!.chainlit/translations/en-GB.json
 .chainlit/*.db
 .chainlit/*.db-*
 

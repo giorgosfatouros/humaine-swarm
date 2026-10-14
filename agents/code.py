@@ -54,7 +54,7 @@ async def get_user_minio_client() -> Minio:
         # Try to get and refresh credentials if needed
         credentials = await UserSessionManager.get_or_refresh_minio_credentials()
         if credentials:
-            logger.info("Using user-specific MinIO credentials")
+            logger.debug("Using user-specific MinIO credentials")
             return get_minio_client(user_credentials=credentials)
         else:
             logger.warning("User MinIO credentials not available, falling back to environment")
@@ -79,7 +79,7 @@ async def get_user_kubeflow_client() -> kfp.Client:
             "No Keycloak access token in session. Sign in again to use Kubeflow."
         )
 
-    logger.info(
+    logger.debug(
         "Connecting to Kubeflow with Keycloak bearer token (namespace: %s)",
         namespace or "all namespaces",
     )
@@ -174,11 +174,11 @@ async def optimize_query(search_query: str) -> str:
         return search_query  # Return original query if optimization fails
         
     response_content = response.choices[0].message.content.strip()
-    logger.info(f"Response content: {response_content}")
+    logger.debug(f"Response content: {response_content}")
 
     # Parse the response content to extract the optimized query
     optimized_query = json.loads(response_content).get("optimized_query", "")
-    logger.info(f"Optimized query: {optimized_query}")
+    logger.debug(f"Optimized query: {optimized_query}")
 
     return optimized_query
 
@@ -189,7 +189,7 @@ async def get_docs(query: str):
     # optimized_query = await optimize_query(query)
     retriever_humaine = VectorIndexRetriever(index=index, similarity_top_k=8)
     retrieved_documents = await retriever_humaine.aretrieve(query)
-    logger.info(f"Retrieved documents: {retrieved_documents}")
+    logger.debug(f"Retrieved documents: {retrieved_documents}")
     return rag_extract_deliverables(retrieved_documents)
 
 # MinIO functions
@@ -1092,7 +1092,7 @@ async def get_kf_pipelines(
                 namespace=api_namespace,
             )
             listed = response.pipelines or []
-            logger.info(
+            logger.debug(
                 "Listed %s Kubeflow pipelines for namespace=%r (%s)",
                 len(listed),
                 api_namespace,
@@ -1968,7 +1968,7 @@ async def plot_data(
         # Determine chart type if not provided
         if not chart_type:
             chart_type = _determine_chart_type(data, x_column, y_column)
-            logger.info(f"Auto-determined chart type: {chart_type}")
+            logger.debug(f"Auto-determined chart type: {chart_type}")
         
         # Create the appropriate Plotly figure
         fig = _create_plotly_figure(

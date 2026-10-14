@@ -17,7 +17,7 @@ class UserSessionManager:
     @staticmethod
     def set_user_id(user_id):
         cl.user_session.set("user_id", user_id)
-        logger.info(f"Set user ID: {user_id}")
+        logger.debug(f"Set user ID: {user_id}")
 
     @staticmethod
     def get_user_id():
@@ -45,7 +45,7 @@ class UserSessionManager:
             logger.warning(f"Could not find user ID in app_user: {app_user}")
             user_id = "unknown_user"
         
-        logger.info(f"Retrieved user ID: {user_id}")  
+        logger.debug(f"Retrieved user ID: {user_id}")  
         return user_id
     
     @staticmethod
@@ -100,16 +100,16 @@ class UserSessionManager:
         user_id = UserSessionManager.get_user_id()
         function_call_count = UserSessionManager.get_function_call_count()
         thread_id = UserSessionManager.get_thread_id()
-        logger.info(f"User ID: {user_id}")
-        logger.info(f"Function Call Count: {function_call_count}")
-        logger.info(f"Thread ID: {thread_id}")
+        logger.debug(f"User ID: {user_id}")
+        logger.debug(f"Function Call Count: {function_call_count}")
+        logger.debug(f"Thread ID: {thread_id}")
     
     # OAuth Token Management
     @staticmethod
     def set_oauth_token(token: str):
         """Store the user's OAuth access token in the session."""
         cl.user_session.set("oauth_token", token)
-        logger.info("OAuth token stored in session")
+        logger.debug("OAuth token stored in session")
     
     @staticmethod
     def get_oauth_token() -> Optional[str]:
@@ -124,7 +124,7 @@ class UserSessionManager:
         Expected keys: access_key, secret_key, session_token, expiry
         """
         cl.user_session.set("minio_credentials", credentials)
-        logger.info("MinIO credentials stored in session")
+        logger.debug("MinIO credentials stored in session")
     
     @staticmethod
     def get_minio_credentials() -> Optional[Dict[str, str]]:
@@ -163,7 +163,7 @@ class UserSessionManager:
         
         credentials = await fetch_minio_credentials_from_keycloak(oauth_token)
         UserSessionManager.set_minio_credentials(credentials)
-        logger.info("MinIO credentials fetched and stored successfully")
+        logger.debug("MinIO credentials fetched and stored successfully")
     
     @staticmethod
     async def get_or_refresh_minio_credentials() -> Optional[Dict[str, str]]:
@@ -232,7 +232,7 @@ class UserSessionManager:
             if (policy_lower == bucket_lower or 
                 bucket_lower in policy_lower or 
                 policy_lower in bucket_lower):
-                logger.info(f"User has access to {bucket_name} via policy {policy}")
+                logger.debug(f"User has access to {bucket_name} via policy {policy}")
                 return True
         
         logger.warning(f"User does not have explicit policy access to {bucket_name}")
@@ -245,7 +245,7 @@ class UserSessionManager:
     def set_kubeflow_namespace(namespace: Optional[str]):
         """Store the user's Kubeflow namespace in the session (None = all namespaces)."""
         cl.user_session.set("kubeflow_namespace", namespace)
-        logger.info(f"Kubeflow namespace set to: {namespace}")
+        logger.debug(f"Kubeflow namespace set to: {namespace}")
     
     @staticmethod
     def get_kubeflow_namespace() -> Optional[str]:
@@ -269,7 +269,7 @@ class UserSessionManager:
         try:
             namespace = extract_user_namespace_from_token(oauth_token)
             UserSessionManager.set_kubeflow_namespace(namespace)
-            logger.info(f"Extracted namespace from token: {namespace}")
+            logger.debug(f"Extracted namespace from token: {namespace}")
         except Exception as e:
             logger.error(f"Failed to extract namespace from token: {str(e)}")
             UserSessionManager.set_kubeflow_namespace(None)
@@ -321,7 +321,7 @@ class UserSessionManager:
         default_namespace = select_default_kubeflow_namespace(namespaces)
         if default_namespace:
             UserSessionManager.set_kubeflow_namespace(default_namespace)
-        logger.info(
+        logger.debug(
             f"Kubeflow namespaces discovered: {[n['namespace'] for n in namespaces]}"
         )
 
@@ -330,7 +330,7 @@ class UserSessionManager:
     def set_user_roles(roles: list):
         """Store the user's roles from token claims in the session."""
         cl.user_session.set("user_roles", roles)
-        logger.info(f"User roles stored: {roles}")
+        logger.debug(f"User roles stored: {roles}")
     
     @staticmethod
     def get_user_roles() -> list:
@@ -342,7 +342,7 @@ class UserSessionManager:
     def set_user_groups(groups: list):
         """Store the user's Keycloak groups from token claims in the session."""
         cl.user_session.set("user_groups", groups)
-        logger.info(f"User groups stored: {groups}")
+        logger.debug(f"User groups stored: {groups}")
 
     @staticmethod
     def get_user_groups() -> list:
@@ -354,7 +354,7 @@ class UserSessionManager:
     def set_user_policies(policies: list):
         """Store the user's MinIO policies from token claims in the session."""
         cl.user_session.set("user_policies", policies)
-        logger.info(f"User policies stored: {policies}")
+        logger.debug(f"User policies stored: {policies}")
     
     @staticmethod
     def get_user_policies() -> list:
@@ -366,7 +366,7 @@ class UserSessionManager:
     def set_token_metadata(metadata: Dict):
         """Store comprehensive token metadata (email, username, expiration, etc.)."""
         cl.user_session.set("token_metadata", metadata)
-        logger.info(f"Token metadata stored for user: {metadata.get('email', metadata.get('preferred_username', 'unknown'))}")
+        logger.debug(f"Token metadata stored for user: {metadata.get('email', metadata.get('preferred_username', 'unknown'))}")
     
     @staticmethod
     def get_token_metadata() -> Optional[Dict]:
@@ -396,12 +396,12 @@ class UserSessionManager:
             policies = decoded.get("policy", [])
             if isinstance(policies, list) and policies:
                 UserSessionManager.set_user_policies(policies)
-                logger.info(f"Extracted policies: {policies}")
+                logger.debug(f"Extracted policies: {policies}")
 
             groups = decoded.get("groups", [])
             if isinstance(groups, list) and groups:
                 UserSessionManager.set_user_groups(groups)
-                logger.info(f"Extracted groups: {groups}")
+                logger.debug(f"Extracted groups: {groups}")
             
             # Extract all roles (realm_access + resource_access)
             all_roles = []
@@ -421,7 +421,7 @@ class UserSessionManager:
             
             if all_roles:
                 UserSessionManager.set_user_roles(all_roles)
-                logger.info(f"Extracted roles: {all_roles}")
+                logger.debug(f"Extracted roles: {all_roles}")
             
             # Store comprehensive token metadata
             token_metadata = {
@@ -444,7 +444,7 @@ class UserSessionManager:
             if token_metadata.get("exp"):
                 exp_time = datetime.fromtimestamp(token_metadata["exp"])
                 time_until_expiry = exp_time - datetime.now()
-                logger.info(f"Token expires at {exp_time}, {time_until_expiry.total_seconds() / 3600:.2f} hours remaining")
+                logger.debug(f"Token expires at {exp_time}, {time_until_expiry.total_seconds() / 3600:.2f} hours remaining")
             
         except jwt.DecodeError as e:
             logger.error(f"Failed to decode JWT token for info extraction: {str(e)}")

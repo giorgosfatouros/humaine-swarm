@@ -2,7 +2,9 @@
 __pycache__/
 *.py[cod]
 *$py.class
-.chainlit/translations/
+.chainlit/translations/*
+# en-GB browsers otherwise log a missing-translation warning on every request
+!.chainlit/translations/en-GB.json
 .chainlit/*.db
 .chainlit/*.db-*
 # RAG staging: track README only; dropped PDFs/MD stay local

@@ -50,6 +50,8 @@ def setup_logging(logger_name, level=logging.INFO):
         logger.addHandler(console_handler)
 
     logger.setLevel(level)
+    # Own handler only: propagating to Chainlit's root handler printed every line twice.
+    logger.propagate = False
     return logger
 
 logger = setup_logging('HELPER-FUNCTIONS', level=logging.ERROR)

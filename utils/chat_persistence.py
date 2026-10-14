@@ -52,11 +52,11 @@ async def refresh_oauth_for_user(user: cl.User) -> bool:
         return True
 
     UserSessionManager.set_oauth_token(user.metadata["oauth_token"])
-    logger.info("Stored OAuth token for user %s", user.identifier)
+    logger.debug("Stored OAuth token for user %s", user.identifier)
 
     try:
         await UserSessionManager.fetch_and_store_minio_credentials()
-        logger.info("Fetched MinIO credentials for user %s", user.identifier)
+        logger.debug("Fetched MinIO credentials for user %s", user.identifier)
     except Exception as exc:
         error_msg = str(exc)
         logger.error("Failed to fetch MinIO credentials: %s", error_msg)
@@ -77,4 +77,10 @@ async def refresh_oauth_for_user(user: cl.User) -> bool:
 
     await UserSessionManager.discover_and_store_kubeflow_namespaces()
 
+    namespaces = UserSessionManager.get_kubeflow_namespaces()
+    logger.info(
+        "Session ready for %s (kubeflow namespaces: %s)",
+        user.identifier,
+        "unknown" if namespaces is None else len(namespaces),
+    )
     return True
