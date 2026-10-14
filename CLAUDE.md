@@ -34,7 +34,7 @@ poetry run python evaluation/merge_ui_captures.py
 poetry run python evaluation/score.py evaluation/runs/<date>/responses.jsonl
 ```
 
-Docker publish/deploy: follow `.cursor/skills/humaine-swarm-docker-publish/SKILL.md` (Hub repo `gfatouros/humaine-swarm`, production tag `:amd64`; on Apple Silicon, build with `--platform linux/amd64`; build once and retag). Helper script: `bash .cursor/skills/humaine-swarm-docker-publish/scripts/publish-amd64.sh` (`SKIP_PUSH=1`, `PLATFORM=` overrides). Containers need `CHAINLIT_DB=sqlite+aiosqlite:////data/chat_history.db` and a volume on `/data`, or chat history is lost.
+Docker publish/deploy: follow `.cursor/skills/humaine-swarm-docker-publish/SKILL.md` (Hub repo `gfatouros/humaine-swarm`; each release gets an immutable `amd64-YYYYMMDD-<sha>` tag and `:amd64`/`:latest` move to it, so never overwrite history; on Apple Silicon, build with `--platform linux/amd64`; build once and retag). Helper script: `bash .cursor/skills/humaine-swarm-docker-publish/scripts/publish-amd64.sh` (`SKIP_PUSH=1`, `PLATFORM=` overrides). Containers need `CHAINLIT_DB=sqlite+aiosqlite:////data/chat_history.db` and a volume on `/data`, or chat history is lost.
 
 ## Configuration
 
