@@ -11,7 +11,8 @@ description: Build, tag, push, and deploy the humaine-swarm Chainlit Docker imag
 |------|--------|
 | Hub repo | `gfatouros/humaine-swarm` |
 | Release tag (immutable) | `amd64-YYYYMMDD-<git short sha>`, e.g. `amd64-20261014-55ed882`; give this one to ops |
-| Moving aliases | `amd64`, `latest` (always the newest release) |
+| Moving alias | `latest` (always the newest release) |
+| Legacy | `amd64`: no longer pushed, frozen at `amd64-20261014-2017142`; ops must pin a versioned tag |
 | Local build tag | `humaine-swarm:latest` |
 | Container name | `humaine-swarm-assistant` (adjust if different on server) |
 | Port | `8000` |
@@ -25,11 +26,11 @@ description: Build, tag, push, and deploy the humaine-swarm Chainlit Docker imag
 
 ## Golden rules
 
-1. **Build once, tag many** — never run separate builds for `:latest` and `:amd64`; duplicate builds create different image IDs with the same displayed size.
-2. **Verify IMAGE ID before push** — `humaine-swarm:latest` and `gfatouros/humaine-swarm:amd64` must share the same ID.
-3. **Push only after retag** — pushing an old `gfatouros/humaine-swarm:amd64` tag uploads nothing new (all layers "Already exists").
-4. **Never overwrite history** — every release is pushed under its own versioned tag (Roberto's request); before `:amd64` moves, the image it points to is archived as `amd64-<created date>-<digest prefix>` with `docker buildx imagetools create`. Never reuse a versioned tag.
-5. **Wait for success** — push must end with `amd64: digest: sha256:...` and no `failed to copy`. Retry on proxy/network errors.
+1. **Build once, tag many** — never run separate builds for `:latest` and the versioned tag; duplicate builds create different image IDs with the same displayed size.
+2. **Verify IMAGE ID before push** — `humaine-swarm:latest`, `gfatouros/humaine-swarm:$VERSION_TAG` and `gfatouros/humaine-swarm:latest` must share the same ID.
+3. **Push only after retag** — pushing a stale `gfatouros/humaine-swarm:latest` tag uploads nothing new (all layers "Already exists").
+4. **Never overwrite history** — every release is pushed under its own versioned tag (Roberto's request); never reuse one. The pre-versioning production image is kept as `amd64-20261011-0602d23`.
+5. **Wait for success** — push must end with `<tag>: digest: sha256:...` and no `failed to copy`. Retry on proxy/network errors.
 
 ---
 
@@ -39,10 +40,9 @@ description: Build, tag, push, and deploy the humaine-swarm Chainlit Docker imag
 - [ ] Code changes committed / tested locally (optional: chainlit run app.py)
 - [ ] Docker logged in to Hub
 - [ ] Build (platform per host — see below)
-- [ ] Tag gfatouros/humaine-swarm:amd64-YYYYMMDD-<sha> + :amd64 + :latest
+- [ ] Tag gfatouros/humaine-swarm:amd64-YYYYMMDD-<sha> + :latest
 - [ ] Verify matching IMAGE IDs
 - [ ] docker push (retry if network fails mid-upload)
-- [ ] Archive the previous :amd64 under its own tag
 - [ ] Give ops the versioned tag + digest
 - [ ] Server: pull + recreate container
 - [ ] Smoke test http://host:8000/
@@ -88,7 +88,7 @@ docker build -t humaine-swarm:latest .
 
 ```bash
 docker build -t humaine-swarm:latest .
-# Tag and push as arm64 or a distinct tag — coordinate with ops; production Hub tag today is :amd64
+# Tag and push as arm64 or a distinct tag — coordinate with ops; production releases use amd64-YYYYMMDD-<sha> tags
 ```
 
 ---
@@ -98,7 +98,6 @@ docker build -t humaine-swarm:latest .
 ```bash
 VERSION_TAG=amd64-$(date +%Y%m%d)-$(git rev-parse --short HEAD)
 docker tag humaine-swarm:latest gfatouros/humaine-swarm:$VERSION_TAG
-docker tag humaine-swarm:latest gfatouros/humaine-swarm:amd64
 docker tag humaine-swarm:latest gfatouros/humaine-swarm:latest
 ```
 
@@ -114,18 +113,8 @@ All production tags must show the **same** IMAGE ID.
 
 ## Step 4 — Push
 
-First archive the current production image (server-side copy, no pull):
-
-```bash
-docker buildx imagetools inspect gfatouros/humaine-swarm:amd64   # note digest + created date
-docker buildx imagetools create -t gfatouros/humaine-swarm:amd64-<created YYYYMMDD>-<digest[:7]> gfatouros/humaine-swarm@sha256:<digest>
-```
-
-Then push the release:
-
 ```bash
 docker push gfatouros/humaine-swarm:$VERSION_TAG
-docker push gfatouros/humaine-swarm:amd64
 docker push gfatouros/humaine-swarm:latest
 ```
 
@@ -134,7 +123,7 @@ Expect layer uploads on a real update. If every layer is `Already exists` and di
 **Retry after failure** (common: `use of closed network connection` via Docker proxy):
 
 ```bash
-docker push gfatouros/humaine-swarm:amd64
+docker push gfatouros/humaine-swarm:$VERSION_TAG
 ```
 
 Partial uploads resume; already-pushed layers skip quickly.
@@ -197,7 +186,7 @@ Adjust container name, port bind, env path, and volume name to match the existin
 
 When asking infra (e.g. Roberto) to update:
 
-- Image: `gfatouros/humaine-swarm:<versioned tag>` (`:amd64` points to the same image)
+- Image: `gfatouros/humaine-swarm:<versioned tag>` (`:latest` points to the same image)
 - New digest: `sha256:...` (from push output or Docker Hub)
 - Steps: `pull` → stop/remove old container → `run` with same `--env-file` and `-v humaine-chainlit-data:/data`
 - Note: RAG index unchanged unless `data_injection.py` was run separately
@@ -227,4 +216,4 @@ For the standard amd64 publish path from Mac/Linux project root:
 bash .cursor/skills/humaine-swarm-docker-publish/scripts/publish-amd64.sh
 ```
 
-It requires a clean working tree, archives the old `:amd64`, and pushes the versioned tag, `:amd64` and `:latest`. See script for `SKIP_PUSH=1`, `VERSION_TAG` and `PLATFORM` overrides.
+It requires a clean working tree and pushes the versioned tag and `:latest`. See script for `SKIP_PUSH=1`, `VERSION_TAG` and `PLATFORM` overrides.

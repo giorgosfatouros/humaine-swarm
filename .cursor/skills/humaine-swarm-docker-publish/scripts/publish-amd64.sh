@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 # Build humaine-swarm, tag for Docker Hub, optionally push.
-# Every release gets an immutable versioned tag (amd64-YYYYMMDD-<git sha>);
-# :amd64 and :latest are moving aliases to the newest release. Before :amd64
-# moves, the image it points to is archived under its own versioned tag on Hub,
-# so previous versions are never lost.
+# Every release gets an immutable versioned tag (amd64-YYYYMMDD-<git sha>), so
+# previous versions are never lost; :latest is the only moving alias. :amd64 is
+# no longer pushed (frozen at the 2026-10-14 release).
 # Usage (from repo root):
 #   bash .cursor/skills/humaine-swarm-docker-publish/scripts/publish-amd64.sh
 #   SKIP_PUSH=1 bash ...          # build + tag only
@@ -14,7 +13,6 @@ set -euo pipefail
 
 REPO="gfatouros/humaine-swarm"
 LOCAL_TAG="humaine-swarm:latest"
-HUB_TAG="${REPO}:amd64"
 
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 cd "$ROOT"
@@ -45,9 +43,8 @@ fi
 echo "==> docker build ${BUILD_ARGS[*]}"
 docker build "${BUILD_ARGS[@]}"
 
-echo "==> Tagging ${VERSIONED}, ${HUB_TAG}, ${REPO}:latest"
+echo "==> Tagging ${VERSIONED}, ${REPO}:latest"
 docker tag "$LOCAL_TAG" "$VERSIONED"
-docker tag "$LOCAL_TAG" "$HUB_TAG"
 docker tag "$LOCAL_TAG" "${REPO}:latest"
 
 echo "==> Image IDs (must match):"
@@ -58,16 +55,7 @@ if [[ "${SKIP_PUSH:-0}" == "1" ]]; then
   exit 0
 fi
 
-# Archive the current :amd64 under a versioned tag (server-side copy, no pull).
-if CURRENT_CREATED="$(docker buildx imagetools inspect "$HUB_TAG" --format '{{json .Image}}' 2>/dev/null \
-    | python3 -c 'import json,sys;d=json.load(sys.stdin);d=d.get("linux/amd64",d);print(d["created"][:10].replace("-",""))' 2>/dev/null)"; then
-  CURRENT_DIGEST="$(docker buildx imagetools inspect "$HUB_TAG" --format '{{.Manifest.Digest}}')"
-  ARCHIVE_TAG="${REPO}:amd64-${CURRENT_CREATED}-${CURRENT_DIGEST:7:7}"
-  echo "==> Archiving current ${HUB_TAG} (${CURRENT_DIGEST}) as ${ARCHIVE_TAG}"
-  docker buildx imagetools create -t "$ARCHIVE_TAG" "${REPO}@${CURRENT_DIGEST}"
-fi
-
-for tag in "$VERSIONED" "$HUB_TAG" "${REPO}:latest"; do
+for tag in "$VERSIONED" "${REPO}:latest"; do
   echo "==> docker push ${tag}"
   docker push "$tag"
 done
