@@ -13,7 +13,6 @@ description: Build, tag, push, and deploy the humaine-swarm Chainlit Docker imag
 | Image platform | `linux/amd64` (typical Linux servers), also when building on a Mac |
 | Release tag (immutable) | `YYYYMMDD-<git short sha>`, e.g. `20261014-2017142`; give this one to ops |
 | Moving alias | `latest` (always the newest release) |
-| Legacy (not pushed any more) | `amd64` and `amd64-20261014-2017142` (= `20261014-2017142`), `amd64-20261011-0602d23` (= `20261011-0602d23`, pre-versioning production) |
 | Local build tag | `humaine-swarm:latest` |
 | Container name | `humaine-swarm-assistant` (adjust if different on server) |
 | Port | `8000` |
