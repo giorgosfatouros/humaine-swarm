@@ -33,7 +33,8 @@ LLM_REASONING_EFFORT = os.environ.get("LLM_REASONING_EFFORT", "medium")
 MAX_CONTEXT_LENGTH = 60000
 # Headroom reserved for the model's response, including reasoning tokens.
 OUTPUT_TOKEN_RESERVE = 8000
-MAX_INPUT_TOKENS = 2000
+# History budget sent to the model; the rest of the context is left for the response
+MAX_INPUT_TOKENS = MAX_CONTEXT_LENGTH - OUTPUT_TOKEN_RESERVE
 
 settings = {
     "model": LLM_MODEL,

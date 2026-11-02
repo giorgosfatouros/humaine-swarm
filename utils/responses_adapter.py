@@ -55,6 +55,21 @@ def _legacy_function_to_output(item: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def drop_orphan_tool_items(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Drop function_call / function_call_output items whose partner is missing.
+
+    The Responses API rejects an output without its call ("No tool call found for function
+    call output") and a call without its output, so history trimming must keep them paired.
+    """
+    call_ids = {i.get("call_id") for i in items if i.get("type") == "function_call"}
+    output_ids = {i.get("call_id") for i in items if i.get("type") == "function_call_output"}
+    paired = call_ids & output_ids
+    return [
+        i for i in items
+        if i.get("type") not in ("function_call", "function_call_output") or i.get("call_id") in paired
+    ]
+
+
 def build_responses_input(history: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     items: List[Dict[str, Any]] = []
     for item in history:

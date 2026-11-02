@@ -235,6 +235,23 @@ async def on_chat_resume(thread: ThreadDict):
         len(message_history),
     )
 
+# Tools whose results may carry a Plotly "figure_json" to show in the chat
+CHART_TOOLS = ("plot_data", "get_pipeline_visualization")
+
+
+def result_for_model(function_name: str, result):
+    """Return the tool result as the model should see it.
+
+    get_pipeline_visualization's chart is for the user only: drop its figure JSON (large, and
+    the model already gets the table) and say that a chart was shown.
+    """
+    if function_name == "get_pipeline_visualization" and isinstance(result, dict) and "figure_json" in result:
+        trimmed = {k: v for k, v in result.items() if k != "figure_json"}
+        trimmed["chart_shown_to_user"] = True
+        return trimmed
+    return result
+
+
 async def create_response_stream(message_history):
     request_kwargs = dict(settings)
     enabled_packs = get_enabled_pack_ids()
@@ -346,15 +363,15 @@ async def process_responses_stream(stream, message_history, msg):
                 if not hasattr(msg, "elements") or msg.elements is None:
                     msg.elements = []
 
-                if function_name == "plot_data" and isinstance(result, dict):
-                    if result.get("success") and "figure_json" in result:
+                if function_name in CHART_TOOLS and isinstance(result, dict):
+                    if result.get("success", True) and "figure_json" in result:
                         try:
                             figure_json = result["figure_json"]
                             fig = pio.from_json(figure_json)
 
                             display = result.get("display", "inline")
                             size = result.get("size", "medium")
-                            chart_type = result.get("chart_type", "chart")
+                            chart_type = result.get("chart_type") or result.get("visualization_type", "chart")
                             title = result.get("title", "Data Visualization")
 
                             plotly_element = cl.Plotly(
@@ -376,7 +393,7 @@ async def process_responses_stream(stream, message_history, msg):
                     function_name,
                     tool_call["arguments"],
                 ),
-                make_function_call_output(tool_call["call_id"], result),
+                make_function_call_output(tool_call["call_id"], result_for_model(function_name, result)),
             )
         except Exception as e:
             logger.error(f"Error in {tool_call['name']}: {str(e)}")

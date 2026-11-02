@@ -1,4 +1,6 @@
 import os
+import re
+from html.parser import HTMLParser
 from datetime import datetime
 import json
 import asyncio
@@ -621,7 +623,10 @@ async def get_model_metrics(
             # Get unique run IDs
             runs = list(set(runs))
         else:
-            runs = [run_name]
+            run_folder, run_error = await _resolve_run_folder(client, bucket_name, pipeline_name, run_name)
+            if run_error:
+                return {"error": run_error}
+            runs = [run_folder]
         
         # Collect metrics for each run
         all_metrics = []
@@ -632,6 +637,8 @@ async def get_model_metrics(
             
             # List objects with metrics prefix
             metrics_objects = client.list_objects(bucket_name, prefix=metrics_prefix, recursive=True)
+            run_params = None
+            run_params_loaded = False
             
             for obj in metrics_objects:
                 try:
@@ -639,9 +646,19 @@ async def get_model_metrics(
                     response = client.get_object(bucket_name, obj.object_name)
                     metrics_data = json.load(response)
                     
-                    # Check if we need to filter by model name
-                    if model_name and metrics_data.get("model_name") != model_name:
+                    # Check if we need to filter by model name ("Random Forest" matches model_type random_forest)
+                    if model_name and _model_key(model_name) not in {
+                        _model_key(metrics_data.get("model_name", "")),
+                        _model_key(metrics_data.get("model_type", "")),
+                    }:
                         continue
+                    
+                    # Attach the run's hyperparameters, read once per run
+                    if not run_params_loaded:
+                        run_params = _run_parameters(client, bucket_name, pipeline_name, current_run)
+                        run_params_loaded = True
+                    if run_params:
+                        metrics_data["parameters"] = run_params
                     
                     # Add run name to the metrics
                     metrics_data["run_name"] = current_run
@@ -682,6 +699,180 @@ async def get_model_metrics(
     except Exception as e:
         logger.error(f"Error retrieving model metrics: {str(e)}")
         return {"error": str(e)}
+
+class _TableParser(HTMLParser):
+    """Collect the <h3> title and table rows (lists of cell text) from a pipeline plot page."""
+
+    def __init__(self):
+        super().__init__()
+        self.title = ""
+        self.rows: List[List[str]] = []
+        self._in_title = False
+        self._cell: Optional[List[str]] = None
+
+    def handle_starttag(self, tag, attrs):
+        if tag == "h3":
+            self._in_title = True
+        elif tag == "tr":
+            self.rows.append([])
+        elif tag in ("td", "th") and self.rows:
+            self._cell = []
+
+    def handle_endtag(self, tag):
+        if tag == "h3":
+            self._in_title = False
+        elif tag in ("td", "th") and self._cell is not None:
+            self.rows[-1].append("".join(self._cell).strip())
+            self._cell = None
+
+    def handle_data(self, data):
+        if self._cell is not None:
+            self._cell.append(data)
+        elif self._in_title:
+            self.title += data
+
+
+def _visualization_figure(html_content: str) -> Optional[go.Figure]:
+    """Draw a Plotly chart from a pipeline's text-table plot page, or None if the table is not recognised.
+
+    Recognises the table layouts the Smart Cities pipeline writes: a 2x2 confusion matrix
+    ("actual \\ predicted" header), ROC points (threshold / FPR / TPR) and feature weights.
+    """
+    try:
+        parser = _TableParser()
+        parser.feed(html_content)
+        rows = [r for r in parser.rows if r]
+        if len(rows) < 2:
+            return None
+        header, body = [h.lower() for h in rows[0]], rows[1:]
+        title = parser.title.strip() or None
+
+        if header[0].startswith("actual") and len(header) >= 3:
+            predicted = rows[0][1:]
+            actual = [r[0] for r in body]
+            z = [[int(float(v)) for v in r[1:]] for r in body]
+            fig = go.Figure(go.Heatmap(
+                z=z, x=predicted, y=actual, colorscale="Blues", showscale=False,
+                text=z, texttemplate="%{text}", textfont={"size": 16},
+            ))
+            fig.update_layout(title=title, xaxis_title="Predicted", yaxis_title="Actual")
+            fig.update_yaxes(autorange="reversed")
+            return fig
+
+        if header[:3] == ["threshold", "false_positive_rate", "true_positive_rate"]:
+            fpr = [float(r[1]) for r in body]
+            tpr = [float(r[2]) for r in body]
+            fig = go.Figure([
+                go.Scatter(x=fpr, y=tpr, mode="lines+markers", name="ROC",
+                           text=[r[0] for r in body], hovertemplate="threshold %{text}<br>FPR %{x}<br>TPR %{y}"),
+                go.Scatter(x=[0, 1], y=[0, 1], mode="lines", name="Random", line={"dash": "dash"}),
+            ])
+            fig.update_layout(title=title, xaxis_title="False positive rate", yaxis_title="True positive rate")
+            return fig
+
+        if header[:2] == ["feature", "weight"]:
+            fig = go.Figure(go.Bar(
+                x=[float(r[1]) for r in body], y=[r[0] for r in body], orientation="h",
+            ))
+            fig.update_layout(title=title, xaxis_title="Weight")
+            fig.update_yaxes(autorange="reversed")  # rows are listed most important first
+            return fig
+    except (ValueError, IndexError) as e:
+        logger.debug(f"Could not chart visualization table: {str(e)}")
+    return None
+
+
+def _model_key(name: str) -> str:
+    """Normalise a model name so "Random Forest", "random-forest" and "random_forest" compare equal."""
+    return re.sub(r"[\s_-]+", "_", str(name).strip().lower())
+
+
+def _read_json_object(client: Minio, bucket_name: str, object_name: str) -> Optional[Any]:
+    """Return a parsed JSON object from MinIO, or None if it is missing or unreadable."""
+    try:
+        response = client.get_object(bucket_name, object_name)
+    except Exception:
+        return None
+    try:
+        return json.load(response)
+    except Exception:
+        return None
+    finally:
+        response.close()
+        response.release_conn()
+
+
+def _run_parameters(client: Minio, bucket_name: str, pipeline_name: str, run_name: str) -> Optional[Dict]:
+    """Return a run's parameters from metadata/run_parameters.json, else run_summary.json's hyperparameters."""
+    base = f"kubeflow/{pipeline_name}/{run_name}/metadata"
+    data = _read_json_object(client, bucket_name, f"{base}/run_parameters.json")
+    if isinstance(data, dict) and isinstance(data.get("parameters"), dict):
+        return data["parameters"]
+    data = _read_json_object(client, bucket_name, f"{base}/run_summary.json")
+    if isinstance(data, dict) and isinstance(data.get("hyperparameters"), dict):
+        return data["hyperparameters"]
+    return None
+
+
+def _run_folders(client: Minio, bucket_name: str, pipeline_name: str) -> List[str]:
+    """List the run folder names under kubeflow/<pipeline_name>/ in a bucket."""
+    prefix = f"kubeflow/{pipeline_name}/"
+    folders = []
+    for obj in client.list_objects(bucket_name, prefix=prefix, recursive=False):
+        name = obj.object_name[len(prefix):].strip("/")
+        if name and getattr(obj, "is_dir", True):
+            folders.append(name)
+    return folders
+
+
+def _run_folder_exists(client: Minio, bucket_name: str, pipeline_name: str, run_name: str) -> bool:
+    objects = client.list_objects(bucket_name, prefix=f"kubeflow/{pipeline_name}/{run_name}/", recursive=True)
+    return next(iter(objects), None) is not None
+
+
+async def _kubeflow_run_id_for_name(run_name: str) -> Optional[str]:
+    """Return the ID of the newest Kubeflow run with this display name, or None."""
+    try:
+        namespace, namespace_error = resolve_kubeflow_namespace()
+        if namespace_error:
+            return None
+        kf_client = await get_user_kubeflow_client()
+        name_filter = json.dumps({
+            "predicates": [{"operation": "EQUALS", "key": "display_name", "stringValue": run_name}]
+        })
+        response = kf_client.list_runs(
+            namespace=namespace, filter=name_filter, sort_by="created_at desc", page_size=1
+        )
+        runs = getattr(response, "runs", None) or []
+        return runs[0].run_id if runs else None
+    except Exception as e:
+        logger.debug(f"Could not look up Kubeflow run '{run_name}': {str(e)}")
+        return None
+
+
+async def _resolve_run_folder(
+    client: Minio, bucket_name: str, pipeline_name: str, run_name: str
+) -> tuple[Optional[str], Optional[str]]:
+    """Map run_name to its MinIO run folder.
+
+    Pipelines publish results under kubeflow/<pipeline>/<Kubeflow run_id>/, but the model
+    sometimes passes the run's display name, so fall back to looking that name up in Kubeflow.
+
+    Returns:
+        (folder, None) on success, or (None, error message) otherwise.
+    """
+    if _run_folder_exists(client, bucket_name, pipeline_name, run_name):
+        return run_name, None
+    run_id = await _kubeflow_run_id_for_name(run_name)
+    if run_id and run_id != run_name and _run_folder_exists(client, bucket_name, pipeline_name, run_id):
+        return run_id, None
+    available = _run_folders(client, bucket_name, pipeline_name)
+    return None, (
+        f"No results for run '{run_name}' under kubeflow/{pipeline_name}/ in bucket '{bucket_name}'. "
+        f"run_name must be the Kubeflow run_id (the run folder name). "
+        f"Available run folders: {', '.join(available[:20]) or 'none'}."
+    )
+
 
 @cl.step(type="tool", name="Get Pipeline Visualization", show_input=False)
 async def get_pipeline_visualization(
@@ -765,6 +956,10 @@ async def get_pipeline_visualization(
         if not pipeline_name or not run_name or not visualization_type:
             return {"error": "When not providing a direct visualization_path, you must specify pipeline_name, run_name, and visualization_type"}
             
+        run_name, run_error = await _resolve_run_folder(client, bucket_name, pipeline_name, run_name)
+        if run_error:
+            return {"error": run_error}
+
         # Construct prefix for visualization files
         vis_prefix = f"kubeflow/{pipeline_name}/{run_name}/plots/"
         
@@ -785,6 +980,8 @@ async def get_pipeline_visualization(
         
         # Find matching visualization files
         matching_files = []
+        # "Random Forest" and "random-forest" should match random_forest_* files
+        model_key = _model_key(model_name) if model_name else None
         
         for obj in vis_objects:
             filename = obj.object_name.split('/')[-1]
@@ -792,7 +989,7 @@ async def get_pipeline_visualization(
             # Check if filename matches the pattern
             if file_pattern in filename:
                 # Check model name if specified
-                if model_name is None or model_name.lower() in filename.lower():
+                if model_key is None or model_key in filename.lower():
                     matching_files.append(obj.object_name)
         
         if not matching_files:
@@ -809,7 +1006,7 @@ async def get_pipeline_visualization(
         response.close()
         response.release_conn()
         
-        return {
+        result = {
             "pipeline_name": pipeline_name,
             "run_name": run_name,
             "visualization_type": visualization_type,
@@ -819,6 +1016,12 @@ async def get_pipeline_visualization(
             "html_content": html_content,
             "available_visualizations": [path.split('/')[-1] for path in matching_files]
         }
+        # app.py shows this as an interactive chart and drops it from the model's copy of the result
+        figure = _visualization_figure(html_content)
+        if figure is not None:
+            result["figure_json"] = figure.to_json()
+            result["title"] = figure.layout.title.text or vis_path.split('/')[-1]
+        return result
             
     except Exception as e:
         logger.error(f"Error retrieving pipeline visualization: {str(e)}")
@@ -864,7 +1067,11 @@ async def compare_pipeline_runs(
         # Collect metrics for each run
         run_metrics = []
         
-        for run_name in run_names:
+        for requested_run in run_names:
+            run_name, run_error = await _resolve_run_folder(client, bucket_name, pipeline_name, requested_run)
+            if run_error:
+                return {"error": run_error}
+
             # Construct prefix for metrics files
             metrics_prefix = f"kubeflow/{pipeline_name}/{run_name}/metrics/"
             
@@ -875,6 +1082,7 @@ async def compare_pipeline_runs(
                 "run_name": run_name,
                 "models": []
             }
+            run_params = _run_parameters(client, bucket_name, pipeline_name, run_name)
             
             for obj in metrics_objects:
                 try:
@@ -892,20 +1100,9 @@ async def compare_pipeline_runs(
                         if metric_name not in ["model_name", "confusion_matrix"] and (metric_names is None or metric_name in metric_names):
                             model_metrics["metrics"][metric_name] = metric_value
                     
-                    # Add parameters if available in MinIO
-                    try:
-                        params_prefix = f"kubeflow/{pipeline_name}/{run_name}/metadata/run_parameters.json"
-                        params_response = client.get_object(bucket_name, params_prefix)
-                        params_data = json.load(params_response)
-                        
-                        if "parameters" in params_data:
-                            model_metrics["parameters"] = params_data["parameters"]
-                        
-                        params_response.close()
-                        params_response.release_conn()
-                    except:
-                        # Parameters might not be available
-                        pass
+                    # Add the run's parameters (run_parameters.json, else run_summary.json)
+                    if run_params:
+                        model_metrics["parameters"] = run_params
                     
                     run_data["models"].append(model_metrics)
                     
@@ -960,7 +1157,10 @@ async def compare_pipeline_runs(
                 for run_name, run_data in model_data["runs"].items():
                     if metric_name in run_data["metrics"]:
                         metric_value = run_data["metrics"][metric_name]
-                        
+                        # Only numbers can be ranked; metrics files also hold labels and nested dicts
+                        if isinstance(metric_value, bool) or not isinstance(metric_value, (int, float)):
+                            continue
+
                         if (higher_is_better and metric_value > best_value) or \
                            (not higher_is_better and metric_value < best_value):
                             best_value = metric_value
@@ -1274,6 +1474,57 @@ async def get_pipeline_version_details(pipeline_id: str, pipeline_version_id: st
         logger.error(f"Error retrieving Kubeflow pipeline version details: {str(e)}")
         return {"error": str(e)}
 
+MINIO_CREDENTIAL_PARAMS = ("minio_access_key", "minio_secret_key", "minio_session_token")
+INJECTED_PARAM_PLACEHOLDER = "<injected from session>"
+
+
+def _latest_pipeline_version(kf_client, pipeline_id: str):
+    """Return the newest version of a pipeline, or None if it has none."""
+    response = kf_client.list_pipeline_versions(
+        pipeline_id=pipeline_id,
+        sort_by="created_at desc",
+        page_size=1,
+    )
+    versions = getattr(response, "pipeline_versions", None) or []
+    return versions[0] if versions else None
+
+
+def _pipeline_input_names(kf_client, pipeline_id: str, version_id: Optional[str]) -> set[str]:
+    """Return the root input parameter names of a pipeline version.
+
+    Uses the latest version when version_id is missing. Returns an empty set on any error.
+    """
+    try:
+        if version_id:
+            version = kf_client.get_pipeline_version(
+                pipeline_id=pipeline_id,
+                pipeline_version_id=version_id,
+            )
+        else:
+            version = _latest_pipeline_version(kf_client, pipeline_id)
+            if version is None:
+                return set()
+
+        spec = getattr(version, "pipeline_spec", None)
+        if isinstance(spec, str):
+            if spec.strip().startswith("{"):
+                spec = json.loads(spec)
+            else:
+                import yaml
+                spec = yaml.safe_load(spec)
+        if not isinstance(spec, dict):
+            return set()
+        # Specs uploaded with a platform spec are wrapped as {"pipeline_spec": ..., "platform_spec": ...}
+        if "root" not in spec and isinstance(spec.get("pipeline_spec"), dict):
+            spec = spec["pipeline_spec"]
+
+        parameters = spec["root"]["inputDefinitions"]["parameters"]
+        return set(parameters) if isinstance(parameters, dict) else set()
+    except Exception as e:
+        logger.debug(f"Could not read pipeline input definitions: {str(e)}")
+        return set()
+
+
 @cl.step(type="tool", name="Run Kubeflow Pipeline", show_input=False)
 async def run_pipeline(
     experiment_id: str,
@@ -1294,7 +1545,7 @@ async def run_pipeline(
         job_name: Name for this pipeline run job
         params: Dictionary of parameter name-value pairs for the pipeline
         pipeline_id: ID of the pipeline to run (use with or without version_id)
-        version_id: Optional specific version of the pipeline to run
+        version_id: Optional specific version of the pipeline to run (default: the latest)
         pipeline_package_path: Alternative to pipeline_id - local path to pipeline package file
         pipeline_root: Root path for pipeline outputs
         enable_caching: Whether to enable caching for the pipeline tasks
@@ -1318,10 +1569,37 @@ async def run_pipeline(
         # Get Kubeflow client
         kf_client = await get_user_kubeflow_client()
         
+        # KFP needs a version to run a stored pipeline; default to the newest so a stale ID is never needed
+        if pipeline_id and not version_id:
+            latest = _latest_pipeline_version(kf_client, pipeline_id)
+            if latest is None:
+                return {"error": f"Pipeline {pipeline_id} has no versions to run"}
+            version_id = latest.pipeline_version_id
+
         # Prepare parameters
-        if params is None:
-            params = {}
-            
+        params = dict(params or {})
+        display_params = dict(params)
+
+        # Fill MinIO credential params from the user's STS session so the model never asks for them
+        if pipeline_id:
+            missing = [name for name in MINIO_CREDENTIAL_PARAMS if not params.get(name)]
+            if missing and "minio_session_token" in _pipeline_input_names(kf_client, pipeline_id, version_id):
+                credentials = await UserSessionManager.get_or_refresh_minio_credentials() or {}
+                session_values = {
+                    "minio_access_key": credentials.get("access_key"),
+                    "minio_secret_key": credentials.get("secret_key"),
+                    "minio_session_token": credentials.get("session_token"),
+                }
+                if not all(session_values[name] for name in missing):
+                    return {
+                        "error": "This pipeline needs MinIO credentials, but your session has none. "
+                                 "Sign out and sign in again, then retry the run."
+                    }
+                for name in missing:
+                    params[name] = session_values[name]
+                    display_params[name] = INJECTED_PARAM_PLACEHOLDER
+                logger.info(f"Injected MinIO session credentials into pipeline params: {', '.join(missing)}")
+
         # Run the pipeline
         run = kf_client.run_pipeline(
             experiment_id=experiment_id,
@@ -1345,7 +1623,7 @@ async def run_pipeline(
             "pipeline_version_id": version_id,
             "experiment_id": experiment_id,
             "service_account": service_account,
-            "params": params
+            "params": display_params
         }
         
         return run_info
@@ -1445,6 +1723,32 @@ async def list_runs(
         logger.error(f"Error retrieving Kubeflow run information: {str(e)}")
         return {"error": str(e)}
 
+def _redact_credential_params(parameters: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """Hide MinIO credential values (injected STS keys) from run parameters."""
+    return {
+        name: "<redacted>" if name in MINIO_CREDENTIAL_PARAMS and value else value
+        for name, value in (parameters or {}).items()
+    }
+
+
+def _failed_run_tasks(run) -> List[Dict[str, Any]]:
+    """List the run's tasks that failed or report an error, with their error message."""
+    run_details = getattr(run, "run_details", None)
+    failed = []
+    for task in getattr(run_details, "task_details", None) or []:
+        state = str(getattr(task, "state", "") or "")
+        error = getattr(task, "error", None)
+        message = getattr(error, "message", None) if error else None
+        if message or state in ("FAILED", "CANCELED"):
+            failed.append({
+                "task": getattr(task, "display_name", None),
+                "state": state or None,
+                "error": message,
+                "pod_name": getattr(task, "pod_name", None),
+            })
+    return failed
+
+
 @cl.step(type="tool", name="Kubeflow Run Details", show_input=False)
 async def get_run_details(run_id: str) -> Dict:
     """
@@ -1479,12 +1783,15 @@ async def get_run_details(run_id: str) -> Dict:
             "service_account": run.service_account if hasattr(run, 'service_account') else None,
             "scheduled_at": str(run.scheduled_at) if hasattr(run, 'scheduled_at') and run.scheduled_at else None,
             "runtime_config": {
-                "parameters": run.runtime_config.parameters if hasattr(run, 'runtime_config') and hasattr(run.runtime_config, 'parameters') else {}
+                "parameters": _redact_credential_params(
+                    run.runtime_config.parameters if hasattr(run, 'runtime_config') and hasattr(run.runtime_config, 'parameters') else {}
+                )
             } if hasattr(run, 'runtime_config') else {},
             "error": {
                 "code": run.error.code if hasattr(run.error, 'code') else None,
                 "message": run.error.message if hasattr(run.error, 'message') else None
-            } if hasattr(run, 'error') and run.error else None
+            } if hasattr(run, 'error') and run.error else None,
+            "failed_tasks": _failed_run_tasks(run)
         }
         
         return run_details

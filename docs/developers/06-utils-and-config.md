@@ -41,6 +41,7 @@ Passed as **kwargs** to **OpenAI `responses.create()`**:
 - **build_responses_input(history)**: user/assistant messages plus `function_call` / `function_call_output` items
 - **convert_tools_for_responses(functions)**: flattens Chat Completions tool schemas for Responses API
 - **item_token_estimate(item, encoding)**: token counting for truncation across item shapes
+- **drop_orphan_tool_items(items)**: drops `function_call` / `function_call_output` items whose partner is missing (used after history truncation)
 
 ### Context length
 

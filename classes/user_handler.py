@@ -2,7 +2,7 @@ import tiktoken
 import chainlit as cl
 from utils.helper_functions import setup_logging
 from utils.config import MAX_INPUT_TOKENS
-from utils.responses_adapter import item_token_estimate
+from utils.responses_adapter import drop_orphan_tool_items, item_token_estimate
 import logging
 import uuid
 import os
@@ -89,6 +89,9 @@ class UserSessionManager:
             if total_tokens > MAX_INPUT_TOKENS:
                 break
             truncated_messages.insert(0, message)
+
+        # Trimming can split a tool call from its output; an orphan makes every later request fail
+        truncated_messages = drop_orphan_tool_items(truncated_messages)
 
         if system_message:
             truncated_messages.insert(0, system_message)

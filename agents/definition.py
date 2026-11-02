@@ -205,7 +205,12 @@ functions = [
         "type": "function",
         "function": {
             "name": "run_pipeline",
-            "description": "Run a Kubeflow pipeline with specified parameters",
+            "description": (
+                "Run a Kubeflow pipeline with specified parameters. MinIO credential params "
+                "(minio_access_key, minio_secret_key, minio_session_token) are filled automatically "
+                "from the user's session when the pipeline declares them: never ask the user for "
+                "them and leave them out of params."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -227,7 +232,7 @@ functions = [
                     },
                     "version_id": {
                         "type": "string",
-                        "description": "Optional specific version of the pipeline to run"
+                        "description": "Optional specific version of the pipeline to run. Omit it to run the latest version; pass one only when the user asks for a specific version."
                     },
                     "pipeline_package_path": {
                         "type": "string",
@@ -372,7 +377,7 @@ functions = [
                     },
                     "run_name": {
                         "type": "string",
-                        "description": "Optional specific run name to get metrics for. It is MinIO object name that contains artifacts for a specific run of a pipeline"
+                        "description": "Optional specific run name to get metrics for. It is MinIO object name that contains artifacts for a specific run of a pipeline. Use the Kubeflow run_id (the run folder name), not the run's display name."
                     },
                     "model_name": {
                         "type": "string",
@@ -397,7 +402,7 @@ functions = [
         "type": "function",
         "function": {
             "name": "get_pipeline_visualization",
-            "description": "Retrieve PRE-EXISTING visual model results (confusion matrices, ROC curves, feature importance) as HTML content from MinIO storage. These are visualizations that were generated during Kubeflow ML pipeline execution. NOTE: This fetches existing files from ML pipeline runs - to CREATE new visualizations from any data, use plot_data instead.",
+            "description": "Retrieve PRE-EXISTING visual model results (confusion matrices, ROC curves, feature importance) as HTML content from MinIO storage. These are visualizations that were generated during Kubeflow ML pipeline execution. When the page is a recognised table (confusion matrix, ROC points, feature weights), the chart is drawn for the user automatically and the result has chart_shown_to_user: true; then explain it and do not redraw it with plot_data. NOTE: This fetches existing files from ML pipeline runs - to CREATE new visualizations from any data, use plot_data instead.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -411,7 +416,7 @@ functions = [
                     },
                     "run_name": {
                         "type": "string",
-                        "description": "Run name to get visualizations for. It is MinIO object name that contains artifacts for a specific run of a pipeline"
+                        "description": "Run name to get visualizations for. It is MinIO object name that contains artifacts for a specific run of a pipeline. Use the Kubeflow run_id (the run folder name), not the run's display name."
                     },
                     "visualization_type": {
                         "type": "string",
@@ -452,7 +457,7 @@ functions = [
                         "items": {
                             "type": "string"
                         },
-                        "description": "List of run names to compare. It is MinIO object name that contains artifacts for a specific run of a pipeline"
+                        "description": "List of run names to compare. Each is the MinIO folder name that contains artifacts for a specific run of a pipeline: use the Kubeflow run_id, not the run's display name."
                     },
                     "metric_names": {
                         "type": "array",

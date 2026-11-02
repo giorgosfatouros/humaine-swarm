@@ -1,0 +1,1098 @@
+# PIPELINE DEFINITION
+# Name: smart-cities-auto-correction-classifier
+# Description: Smart Cities - Auto-Correction Eligibility Classifier: decides whether a citizen's mistaken application entry can be fixed automatically or needs a human operator. Trains a logistic regression and a random forest on the synthetic IBM2 'obvious mistake' dataset and publishes models, metrics and reports to MinIO.
+# Inputs:
+#    data_bucket: str [Default: 'smart-cities-data']
+#    lr_c: float [Default: 1.0]
+#    minio_access_key: str [Default: '']
+#    minio_endpoint: str [Default: 's3-minio.humaine-horizon.eu']
+#    minio_secret_key: str [Default: '']
+#    minio_session_token: str [Default: '']
+#    output_bucket: str [Default: 'smart-cities-data']
+#    random_state: int [Default: 42.0]
+#    rf_max_depth: int [Default: 8.0]
+#    rf_n_estimators: int [Default: 200.0]
+#    test_object: str [Default: 'auto-correction/test.csv']
+#    train_object: str [Default: 'auto-correction/train.csv']
+components:
+  comp-build-features:
+    executorLabel: exec-build-features
+    inputDefinitions:
+      artifacts:
+        test_data:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+        train_data:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+    outputDefinitions:
+      artifacts:
+        test_features:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+        train_features:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+  comp-evaluate-model:
+    executorLabel: exec-evaluate-model
+    inputDefinitions:
+      artifacts:
+        model:
+          artifactType:
+            schemaTitle: system.Model
+            schemaVersion: 0.0.1
+        test_features:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+    outputDefinitions:
+      artifacts:
+        classification_metrics:
+          artifactType:
+            schemaTitle: system.ClassificationMetrics
+            schemaVersion: 0.0.1
+        metrics:
+          artifactType:
+            schemaTitle: system.Metrics
+            schemaVersion: 0.0.1
+        metrics_json:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+        plots:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+        report:
+          artifactType:
+            schemaTitle: system.HTML
+            schemaVersion: 0.0.1
+  comp-evaluate-model-2:
+    executorLabel: exec-evaluate-model-2
+    inputDefinitions:
+      artifacts:
+        model:
+          artifactType:
+            schemaTitle: system.Model
+            schemaVersion: 0.0.1
+        test_features:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+    outputDefinitions:
+      artifacts:
+        classification_metrics:
+          artifactType:
+            schemaTitle: system.ClassificationMetrics
+            schemaVersion: 0.0.1
+        metrics:
+          artifactType:
+            schemaTitle: system.Metrics
+            schemaVersion: 0.0.1
+        metrics_json:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+        plots:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+        report:
+          artifactType:
+            schemaTitle: system.HTML
+            schemaVersion: 0.0.1
+  comp-load-data:
+    executorLabel: exec-load-data
+    inputDefinitions:
+      parameters:
+        data_bucket:
+          parameterType: STRING
+        minio_access_key:
+          parameterType: STRING
+        minio_endpoint:
+          parameterType: STRING
+        minio_secret_key:
+          parameterType: STRING
+        minio_session_token:
+          parameterType: STRING
+        test_object:
+          parameterType: STRING
+        train_object:
+          parameterType: STRING
+    outputDefinitions:
+      artifacts:
+        test_data:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+        train_data:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+  comp-publish-results:
+    executorLabel: exec-publish-results
+    inputDefinitions:
+      artifacts:
+        lr_metrics:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+        lr_model:
+          artifactType:
+            schemaTitle: system.Model
+            schemaVersion: 0.0.1
+        lr_plots:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+        lr_report:
+          artifactType:
+            schemaTitle: system.HTML
+            schemaVersion: 0.0.1
+        rf_metrics:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+        rf_model:
+          artifactType:
+            schemaTitle: system.Model
+            schemaVersion: 0.0.1
+        rf_plots:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+        rf_report:
+          artifactType:
+            schemaTitle: system.HTML
+            schemaVersion: 0.0.1
+      parameters:
+        data_bucket:
+          parameterType: STRING
+        lr_c:
+          parameterType: NUMBER_DOUBLE
+        minio_access_key:
+          parameterType: STRING
+        minio_endpoint:
+          parameterType: STRING
+        minio_secret_key:
+          parameterType: STRING
+        minio_session_token:
+          parameterType: STRING
+        output_bucket:
+          parameterType: STRING
+        pipeline_name:
+          parameterType: STRING
+        random_state:
+          parameterType: NUMBER_INTEGER
+        rf_max_depth:
+          parameterType: NUMBER_INTEGER
+        rf_n_estimators:
+          parameterType: NUMBER_INTEGER
+        run_id:
+          parameterType: STRING
+        test_object:
+          parameterType: STRING
+        train_object:
+          parameterType: STRING
+    outputDefinitions:
+      artifacts:
+        summary:
+          artifactType:
+            schemaTitle: system.Metrics
+            schemaVersion: 0.0.1
+  comp-train-model:
+    executorLabel: exec-train-model
+    inputDefinitions:
+      artifacts:
+        train_features:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+      parameters:
+        lr_c:
+          parameterType: NUMBER_DOUBLE
+        model_type:
+          parameterType: STRING
+        random_state:
+          parameterType: NUMBER_INTEGER
+        rf_max_depth:
+          parameterType: NUMBER_INTEGER
+        rf_n_estimators:
+          parameterType: NUMBER_INTEGER
+    outputDefinitions:
+      artifacts:
+        model:
+          artifactType:
+            schemaTitle: system.Model
+            schemaVersion: 0.0.1
+  comp-train-model-2:
+    executorLabel: exec-train-model-2
+    inputDefinitions:
+      artifacts:
+        train_features:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+      parameters:
+        lr_c:
+          parameterType: NUMBER_DOUBLE
+        model_type:
+          parameterType: STRING
+        random_state:
+          parameterType: NUMBER_INTEGER
+        rf_max_depth:
+          parameterType: NUMBER_INTEGER
+        rf_n_estimators:
+          parameterType: NUMBER_INTEGER
+    outputDefinitions:
+      artifacts:
+        model:
+          artifactType:
+            schemaTitle: system.Model
+            schemaVersion: 0.0.1
+deploymentSpec:
+  executors:
+    exec-build-features:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - build_features
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'pandas==2.2.3'\
+          \  &&  python3 -m pip install --quiet --no-warn-script-location 'kfp==2.15.2'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"' && \"\
+          $0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef build_features(\n    train_data: Input[Dataset],\n    test_data:\
+          \ Input[Dataset],\n    train_features: Output[Dataset],\n    test_features:\
+          \ Output[Dataset],\n):\n    \"\"\"Turn each (supplied value, correct value,\
+          \ field type) into numeric features.\n\n    The features are generic string\
+          \ distances between the citizen's entry and the\n    correct value. Features\
+          \ that restate the dataset's generation rules (Greek\n    sound-alike spelling,\
+          \ token reordering) are left out on purpose: with them both\n    models\
+          \ score 100% and the demo has nothing to compare. `mutation_type` names\n\
+          \    the rule that created the mistake and is never used.\n    \"\"\"\n\
+          \    import re\n    import unicodedata\n    from collections import Counter\n\
+          \n    import pandas as pd\n\n    field_types = [\"name\", \"surname\", \"\
+          father_name\", \"address\", \"vat_number\",\n                   \"id_number\"\
+          , \"power_supply\", \"licence_plate\", \"mobile_phone\"]\n    numeric_fields\
+          \ = {\"vat_number\", \"id_number\", \"power_supply\", \"licence_plate\"\
+          , \"mobile_phone\"}\n\n    def clean(s):\n        s = unicodedata.normalize(\"\
+          NFD\", str(s).upper())\n        return \"\".join(c for c in s if not unicodedata.combining(c)).strip()\n\
+          \n    def levenshtein(a, b):\n        prev = list(range(len(b) + 1))\n \
+          \       for i, ca in enumerate(a, 1):\n            cur = [i]\n         \
+          \   for j, cb in enumerate(b, 1):\n                cur.append(min(prev[j]\
+          \ + 1, cur[j - 1] + 1, prev[j - 1] + (ca != cb)))\n            prev = cur\n\
+          \        return prev[-1]\n\n    def featurize(df):\n        rows = []\n\
+          \        for sup, gt, ft in zip(df[\"supplied_value\"], df[\"ground_truth\"\
+          ], df[\"field_type\"]):\n            s, g = clean(sup), clean(gt)\n    \
+          \        lev = levenshtein(s, g)\n            row = {f\"field_{f}\": int(ft\
+          \ == f) for f in field_types}\n            row.update({\n              \
+          \  \"is_numeric_field\": int(ft in numeric_fields),\n                \"\
+          len_diff\": len(s) - len(g),\n                \"levenshtein\": lev,\n  \
+          \              \"levenshtein_norm\": lev / max(len(s), len(g), 1),\n   \
+          \             \"char_multiset_equal\": int(Counter(s.replace(\" \", \"\"\
+          )) == Counter(g.replace(\" \", \"\"))),\n                \"digits_equal\"\
+          : int(re.sub(r\"\\D\", \"\", s) == re.sub(r\"\\D\", \"\", g)),\n       \
+          \     })\n            rows.append(row)\n        out = pd.DataFrame(rows)\n\
+          \        out[\"field_type\"] = df[\"field_type\"].values\n        out[\"\
+          label\"] = df[\"is_obvious\"].astype(int).values\n        return out\n\n\
+          \    for src, dst in ((train_data, train_features), (test_data, test_features)):\n\
+          \        feats = featurize(pd.read_csv(src.path, encoding=\"utf-8\"))\n\
+          \        feats.to_csv(dst.path, index=False)\n        names = [c for c in\
+          \ feats.columns if c not in (\"field_type\", \"label\")]\n        dst.metadata.update({\"\
+          rows\": len(feats), \"n_features\": len(names), \"features\": names})\n\
+          \    print(f\"Built {len(names)} features: {names}\")\n\n"
+        image: python:3.11-slim
+    exec-evaluate-model:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - evaluate_model
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'pandas==2.2.3'\
+          \ 'scikit-learn==1.5.2' 'matplotlib==3.9.2'  &&  python3 -m pip install\
+          \ --quiet --no-warn-script-location 'kfp==2.15.2' '--no-deps' 'typing-extensions>=3.7.4,<5;\
+          \ python_version<\"3.9\"' && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef evaluate_model(\n    model: Input[Model],\n    test_features:\
+          \ Input[Dataset],\n    metrics: Output[Metrics],\n    classification_metrics:\
+          \ Output[ClassificationMetrics],\n    metrics_json: Output[Dataset],\n \
+          \   report: Output[HTML],\n    plots: Output[Artifact],\n):\n    \"\"\"\
+          Score the model on the held-out test set.\n\n    Writes two kinds of HTML:\
+          \ `report` is a visual page (embedded PNGs) for people\n    and the Kubeflow\
+          \ UI; `plots` is a folder of small text-only tables named\n    <model>_{confusion_matrix,roc_curve,feature_importance}.html,\
+          \ which the\n    assistant's get_pipeline_visualization tool reads and passes\
+          \ to the LLM.\n    \"\"\"\n    import base64\n    import io\n    import\
+          \ json\n    import os\n\n    import joblib\n    import matplotlib\n    import\
+          \ pandas as pd\n    from sklearn.metrics import (accuracy_score, confusion_matrix,\
+          \ f1_score,\n                                 precision_score, recall_score,\
+          \ roc_auc_score, roc_curve)\n\n    matplotlib.use(\"Agg\")\n    import matplotlib.pyplot\
+          \ as plt\n\n    # The model artifact was written by train_model in this\
+          \ same run, so unpickling is safe\n    bundle = joblib.load(model.path)\n\
+          \    clf, model_type, feature_names = bundle[\"model\"], bundle[\"model_type\"\
+          ], bundle[\"feature_names\"]\n    model_name = {\"logistic_regression\"\
+          : \"Logistic Regression\",\n                  \"random_forest\": \"Random\
+          \ Forest\"}.get(model_type, model_type)\n    labels = [\"needs operator\"\
+          , \"auto-correctable\"]\n\n    df = pd.read_csv(test_features.path)\n  \
+          \  X, y = df[feature_names], df[\"label\"]\n    y_pred = clf.predict(X)\n\
+          \    y_score = clf.predict_proba(X)[:, 1]\n    cm = confusion_matrix(y,\
+          \ y_pred, labels=[0, 1])\n\n    per_field = {ft: round(float(accuracy_score(g[\"\
+          label\"], y_pred[g.index])), 4)\n                 for ft, g in df.groupby(\"\
+          field_type\")}\n    result = {\n        \"model_name\": model_name,\n  \
+          \      \"model_type\": model_type,\n        \"accuracy\": float(accuracy_score(y,\
+          \ y_pred)),\n        \"precision\": float(precision_score(y, y_pred, zero_division=0)),\n\
+          \        \"recall\": float(recall_score(y, y_pred, zero_division=0)),\n\
+          \        \"f1_score\": float(f1_score(y, y_pred, zero_division=0)),\n  \
+          \      \"auc\": float(roc_auc_score(y, y_score)),\n        \"confusion_matrix\"\
+          : cm.tolist(),\n        \"confusion_matrix_labels\": labels,\n        \"\
+          confusion_matrix_orientation\": \"rows = actual class, columns = predicted\
+          \ class\",\n        # Named counts, so a reader cannot swap actual and predicted.\
+          \ Wrong auto-corrections are the costly error.\n        \"outcomes\": {\n\
+          \            \"needs_operator_correctly_sent_to_operator\": int(cm[0, 0]),\n\
+          \            \"needs_operator_wrongly_auto_corrected\": int(cm[0, 1]),\n\
+          \            \"auto_correctable_wrongly_sent_to_operator\": int(cm[1, 0]),\n\
+          \            \"auto_correctable_correctly_auto_corrected\": int(cm[1, 1]),\n\
+          \        },\n        \"positive_class\": \"auto-correctable\",\n       \
+          \ \"per_field_accuracy\": per_field,\n        \"test_rows\": len(df),\n\
+          \    }\n    with open(metrics_json.path, \"w\", encoding=\"utf-8\") as fh:\n\
+          \        json.dump(result, fh, indent=2)\n\n    for k in (\"accuracy\",\
+          \ \"precision\", \"recall\", \"f1_score\", \"auc\"):\n        metrics.log_metric(k,\
+          \ round(result[k], 4))\n    classification_metrics.log_confusion_matrix(labels,\
+          \ cm.tolist())\n\n    # Confusion matrix and feature weights, embedded as\
+          \ PNGs in one HTML page\n    if hasattr(clf, \"feature_importances_\"):\n\
+          \        weights, weight_title = clf.feature_importances_, \"Feature importance\"\
+          \n    else:\n        weights, weight_title = clf[-1].coef_[0], \"Coefficient\
+          \ (standardised features)\"\n    order = sorted(range(len(feature_names)),\
+          \ key=lambda i: abs(weights[i]))\n\n    fig, (ax1, ax2) = plt.subplots(1,\
+          \ 2, figsize=(13, 5), gridspec_kw={\"width_ratios\": [1, 1.4]})\n    ax1.imshow(cm,\
+          \ cmap=\"Blues\")\n    for i in range(2):\n        for j in range(2):\n\
+          \            ax1.text(j, i, cm[i, j], ha=\"center\", va=\"center\",\n  \
+          \                   color=\"white\" if cm[i, j] > cm.max() / 2 else \"black\"\
+          , fontsize=14)\n    ax1.set_xticks([0, 1], labels)\n    ax1.set_yticks([0,\
+          \ 1], labels)\n    ax1.set_xlabel(\"Predicted\")\n    ax1.set_ylabel(\"\
+          Actual\")\n    ax1.set_title(\"Confusion matrix (test set)\")\n    ax2.barh([feature_names[i]\
+          \ for i in order], [weights[i] for i in order], color=\"#3b6ea5\")\n   \
+          \ ax2.set_title(weight_title)\n    fig.suptitle(f\"{model_name} - auto-correction\
+          \ eligibility\")\n    fig.tight_layout()\n    buf = io.BytesIO()\n    fig.savefig(buf,\
+          \ format=\"png\", dpi=110)\n    plt.close(fig)\n    img = base64.b64encode(buf.getvalue()).decode(\"\
+          ascii\")\n\n    metric_rows = \"\".join(\n        f\"<tr><td>{k}</td><td>{result[k]:.4f}</td></tr>\"\
+          \n        for k in (\"accuracy\", \"precision\", \"recall\", \"f1_score\"\
+          , \"auc\"))\n    field_rows = \"\".join(f\"<tr><td>{ft}</td><td>{acc:.4f}</td></tr>\"\
+          \ for ft, acc in per_field.items())\n    html = f\"\"\"<!doctype html>\n\
+          <html><head><meta charset=\"utf-8\"><title>{model_name} - Auto-Correction\
+          \ Classifier</title>\n<style>body{{font-family:sans-serif;margin:24px;color:#222}}table{{border-collapse:collapse;margin:8px\
+          \ 24px 16px 0;display:inline-table;vertical-align:top}}\ntd,th{{border:1px\
+          \ solid #ccc;padding:4px 10px;text-align:left}}th{{background:#f0f4f8}}img{{max-width:100%}}</style></head>\n\
+          <body><h2>Smart Cities - Auto-Correction Eligibility Classifier: {model_name}</h2>\n\
+          <p>Positive class: <b>auto-correctable</b> (obvious mistake). Negative class:\
+          \ <b>needs operator</b>. Test rows: {len(df)}.</p>\n<table><tr><th>Metric</th><th>Value</th></tr>{metric_rows}</table>\n\
+          <table><tr><th>Field type</th><th>Accuracy</th></tr>{field_rows}</table>\n\
+          <img src=\"data:image/png;base64,{img}\" alt=\"Confusion matrix and feature\
+          \ weights\"></body></html>\"\"\"\n    with open(report.path, \"w\", encoding=\"\
+          utf-8\") as fh:\n        fh.write(html)\n\n    # Compact table versions\
+          \ for the assistant (no images, a few hundred bytes each)\n    def table_page(title,\
+          \ header, rows, note=\"\"):\n        body = \"\".join(\"<tr>\" + \"\".join(f\"\
+          <td>{c}</td>\" for c in r) + \"</tr>\" for r in rows)\n        head = \"\
+          \".join(f\"<th>{h}</th>\" for h in header)\n        note = f\"<p>{note}</p>\"\
+          \ if note else \"\"\n        return (f'<!doctype html><html><head><meta\
+          \ charset=\"utf-8\"><title>{title}</title></head>'\n                f\"\
+          <body><h3>{title}</h3><table><tr>{head}</tr>{body}</table>{note}</body></html>\"\
+          )\n\n    fpr, tpr, thr = roc_curve(y, y_score)\n    step = max(1, len(fpr)\
+          \ // 20)\n    roc_idx = sorted(set(range(0, len(fpr), step)) | {len(fpr)\
+          \ - 1})\n    pages = {\n        \"confusion_matrix\": table_page(\n    \
+          \        f\"{model_name} - confusion matrix (test set, rows = actual)\"\
+          ,\n            [\"actual \\\\ predicted\", *labels],\n            [[labels[i],\
+          \ int(cm[i, 0]), int(cm[i, 1])] for i in range(2)],\n            note=(f\"\
+          Errors: {int(cm[0, 1])} entries that needed an operator would be wrongly\
+          \ \"\n                  f\"auto-corrected (false positives, the costly error).\
+          \ {int(cm[1, 0])} \"\n                  f\"auto-correctable entries would\
+          \ be sent to an operator unnecessarily \"\n                  f\"(false negatives).\"\
+          )),\n        \"roc_curve\": table_page(\n            f\"{model_name} - ROC\
+          \ curve (AUC {result['auc']:.4f})\",\n            [\"threshold\", \"false_positive_rate\"\
+          , \"true_positive_rate\"],\n            [[f\"{min(thr[i], 1.0):.3f}\", f\"\
+          {fpr[i]:.3f}\", f\"{tpr[i]:.3f}\"] for i in roc_idx]),\n        \"feature_importance\"\
+          : table_page(\n            f\"{model_name} - {weight_title.lower()}\",\n\
+          \            [\"feature\", \"weight\"],\n            [[feature_names[i],\
+          \ f\"{weights[i]:.4f}\"] for i in reversed(order)]),\n    }\n    os.makedirs(plots.path,\
+          \ exist_ok=True)\n    for kind, page in pages.items():\n        with open(os.path.join(plots.path,\
+          \ f\"{model_type}_{kind}.html\"), \"w\", encoding=\"utf-8\") as fh:\n  \
+          \          fh.write(page)\n\n    print(f\"{model_name}: \" + \", \".join(f\"\
+          {k}={result[k]:.4f}\"\n                                         for k in\
+          \ (\"accuracy\", \"precision\", \"recall\", \"f1_score\", \"auc\")))\n\n"
+        image: python:3.11-slim
+    exec-evaluate-model-2:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - evaluate_model
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'pandas==2.2.3'\
+          \ 'scikit-learn==1.5.2' 'matplotlib==3.9.2'  &&  python3 -m pip install\
+          \ --quiet --no-warn-script-location 'kfp==2.15.2' '--no-deps' 'typing-extensions>=3.7.4,<5;\
+          \ python_version<\"3.9\"' && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef evaluate_model(\n    model: Input[Model],\n    test_features:\
+          \ Input[Dataset],\n    metrics: Output[Metrics],\n    classification_metrics:\
+          \ Output[ClassificationMetrics],\n    metrics_json: Output[Dataset],\n \
+          \   report: Output[HTML],\n    plots: Output[Artifact],\n):\n    \"\"\"\
+          Score the model on the held-out test set.\n\n    Writes two kinds of HTML:\
+          \ `report` is a visual page (embedded PNGs) for people\n    and the Kubeflow\
+          \ UI; `plots` is a folder of small text-only tables named\n    <model>_{confusion_matrix,roc_curve,feature_importance}.html,\
+          \ which the\n    assistant's get_pipeline_visualization tool reads and passes\
+          \ to the LLM.\n    \"\"\"\n    import base64\n    import io\n    import\
+          \ json\n    import os\n\n    import joblib\n    import matplotlib\n    import\
+          \ pandas as pd\n    from sklearn.metrics import (accuracy_score, confusion_matrix,\
+          \ f1_score,\n                                 precision_score, recall_score,\
+          \ roc_auc_score, roc_curve)\n\n    matplotlib.use(\"Agg\")\n    import matplotlib.pyplot\
+          \ as plt\n\n    # The model artifact was written by train_model in this\
+          \ same run, so unpickling is safe\n    bundle = joblib.load(model.path)\n\
+          \    clf, model_type, feature_names = bundle[\"model\"], bundle[\"model_type\"\
+          ], bundle[\"feature_names\"]\n    model_name = {\"logistic_regression\"\
+          : \"Logistic Regression\",\n                  \"random_forest\": \"Random\
+          \ Forest\"}.get(model_type, model_type)\n    labels = [\"needs operator\"\
+          , \"auto-correctable\"]\n\n    df = pd.read_csv(test_features.path)\n  \
+          \  X, y = df[feature_names], df[\"label\"]\n    y_pred = clf.predict(X)\n\
+          \    y_score = clf.predict_proba(X)[:, 1]\n    cm = confusion_matrix(y,\
+          \ y_pred, labels=[0, 1])\n\n    per_field = {ft: round(float(accuracy_score(g[\"\
+          label\"], y_pred[g.index])), 4)\n                 for ft, g in df.groupby(\"\
+          field_type\")}\n    result = {\n        \"model_name\": model_name,\n  \
+          \      \"model_type\": model_type,\n        \"accuracy\": float(accuracy_score(y,\
+          \ y_pred)),\n        \"precision\": float(precision_score(y, y_pred, zero_division=0)),\n\
+          \        \"recall\": float(recall_score(y, y_pred, zero_division=0)),\n\
+          \        \"f1_score\": float(f1_score(y, y_pred, zero_division=0)),\n  \
+          \      \"auc\": float(roc_auc_score(y, y_score)),\n        \"confusion_matrix\"\
+          : cm.tolist(),\n        \"confusion_matrix_labels\": labels,\n        \"\
+          confusion_matrix_orientation\": \"rows = actual class, columns = predicted\
+          \ class\",\n        # Named counts, so a reader cannot swap actual and predicted.\
+          \ Wrong auto-corrections are the costly error.\n        \"outcomes\": {\n\
+          \            \"needs_operator_correctly_sent_to_operator\": int(cm[0, 0]),\n\
+          \            \"needs_operator_wrongly_auto_corrected\": int(cm[0, 1]),\n\
+          \            \"auto_correctable_wrongly_sent_to_operator\": int(cm[1, 0]),\n\
+          \            \"auto_correctable_correctly_auto_corrected\": int(cm[1, 1]),\n\
+          \        },\n        \"positive_class\": \"auto-correctable\",\n       \
+          \ \"per_field_accuracy\": per_field,\n        \"test_rows\": len(df),\n\
+          \    }\n    with open(metrics_json.path, \"w\", encoding=\"utf-8\") as fh:\n\
+          \        json.dump(result, fh, indent=2)\n\n    for k in (\"accuracy\",\
+          \ \"precision\", \"recall\", \"f1_score\", \"auc\"):\n        metrics.log_metric(k,\
+          \ round(result[k], 4))\n    classification_metrics.log_confusion_matrix(labels,\
+          \ cm.tolist())\n\n    # Confusion matrix and feature weights, embedded as\
+          \ PNGs in one HTML page\n    if hasattr(clf, \"feature_importances_\"):\n\
+          \        weights, weight_title = clf.feature_importances_, \"Feature importance\"\
+          \n    else:\n        weights, weight_title = clf[-1].coef_[0], \"Coefficient\
+          \ (standardised features)\"\n    order = sorted(range(len(feature_names)),\
+          \ key=lambda i: abs(weights[i]))\n\n    fig, (ax1, ax2) = plt.subplots(1,\
+          \ 2, figsize=(13, 5), gridspec_kw={\"width_ratios\": [1, 1.4]})\n    ax1.imshow(cm,\
+          \ cmap=\"Blues\")\n    for i in range(2):\n        for j in range(2):\n\
+          \            ax1.text(j, i, cm[i, j], ha=\"center\", va=\"center\",\n  \
+          \                   color=\"white\" if cm[i, j] > cm.max() / 2 else \"black\"\
+          , fontsize=14)\n    ax1.set_xticks([0, 1], labels)\n    ax1.set_yticks([0,\
+          \ 1], labels)\n    ax1.set_xlabel(\"Predicted\")\n    ax1.set_ylabel(\"\
+          Actual\")\n    ax1.set_title(\"Confusion matrix (test set)\")\n    ax2.barh([feature_names[i]\
+          \ for i in order], [weights[i] for i in order], color=\"#3b6ea5\")\n   \
+          \ ax2.set_title(weight_title)\n    fig.suptitle(f\"{model_name} - auto-correction\
+          \ eligibility\")\n    fig.tight_layout()\n    buf = io.BytesIO()\n    fig.savefig(buf,\
+          \ format=\"png\", dpi=110)\n    plt.close(fig)\n    img = base64.b64encode(buf.getvalue()).decode(\"\
+          ascii\")\n\n    metric_rows = \"\".join(\n        f\"<tr><td>{k}</td><td>{result[k]:.4f}</td></tr>\"\
+          \n        for k in (\"accuracy\", \"precision\", \"recall\", \"f1_score\"\
+          , \"auc\"))\n    field_rows = \"\".join(f\"<tr><td>{ft}</td><td>{acc:.4f}</td></tr>\"\
+          \ for ft, acc in per_field.items())\n    html = f\"\"\"<!doctype html>\n\
+          <html><head><meta charset=\"utf-8\"><title>{model_name} - Auto-Correction\
+          \ Classifier</title>\n<style>body{{font-family:sans-serif;margin:24px;color:#222}}table{{border-collapse:collapse;margin:8px\
+          \ 24px 16px 0;display:inline-table;vertical-align:top}}\ntd,th{{border:1px\
+          \ solid #ccc;padding:4px 10px;text-align:left}}th{{background:#f0f4f8}}img{{max-width:100%}}</style></head>\n\
+          <body><h2>Smart Cities - Auto-Correction Eligibility Classifier: {model_name}</h2>\n\
+          <p>Positive class: <b>auto-correctable</b> (obvious mistake). Negative class:\
+          \ <b>needs operator</b>. Test rows: {len(df)}.</p>\n<table><tr><th>Metric</th><th>Value</th></tr>{metric_rows}</table>\n\
+          <table><tr><th>Field type</th><th>Accuracy</th></tr>{field_rows}</table>\n\
+          <img src=\"data:image/png;base64,{img}\" alt=\"Confusion matrix and feature\
+          \ weights\"></body></html>\"\"\"\n    with open(report.path, \"w\", encoding=\"\
+          utf-8\") as fh:\n        fh.write(html)\n\n    # Compact table versions\
+          \ for the assistant (no images, a few hundred bytes each)\n    def table_page(title,\
+          \ header, rows, note=\"\"):\n        body = \"\".join(\"<tr>\" + \"\".join(f\"\
+          <td>{c}</td>\" for c in r) + \"</tr>\" for r in rows)\n        head = \"\
+          \".join(f\"<th>{h}</th>\" for h in header)\n        note = f\"<p>{note}</p>\"\
+          \ if note else \"\"\n        return (f'<!doctype html><html><head><meta\
+          \ charset=\"utf-8\"><title>{title}</title></head>'\n                f\"\
+          <body><h3>{title}</h3><table><tr>{head}</tr>{body}</table>{note}</body></html>\"\
+          )\n\n    fpr, tpr, thr = roc_curve(y, y_score)\n    step = max(1, len(fpr)\
+          \ // 20)\n    roc_idx = sorted(set(range(0, len(fpr), step)) | {len(fpr)\
+          \ - 1})\n    pages = {\n        \"confusion_matrix\": table_page(\n    \
+          \        f\"{model_name} - confusion matrix (test set, rows = actual)\"\
+          ,\n            [\"actual \\\\ predicted\", *labels],\n            [[labels[i],\
+          \ int(cm[i, 0]), int(cm[i, 1])] for i in range(2)],\n            note=(f\"\
+          Errors: {int(cm[0, 1])} entries that needed an operator would be wrongly\
+          \ \"\n                  f\"auto-corrected (false positives, the costly error).\
+          \ {int(cm[1, 0])} \"\n                  f\"auto-correctable entries would\
+          \ be sent to an operator unnecessarily \"\n                  f\"(false negatives).\"\
+          )),\n        \"roc_curve\": table_page(\n            f\"{model_name} - ROC\
+          \ curve (AUC {result['auc']:.4f})\",\n            [\"threshold\", \"false_positive_rate\"\
+          , \"true_positive_rate\"],\n            [[f\"{min(thr[i], 1.0):.3f}\", f\"\
+          {fpr[i]:.3f}\", f\"{tpr[i]:.3f}\"] for i in roc_idx]),\n        \"feature_importance\"\
+          : table_page(\n            f\"{model_name} - {weight_title.lower()}\",\n\
+          \            [\"feature\", \"weight\"],\n            [[feature_names[i],\
+          \ f\"{weights[i]:.4f}\"] for i in reversed(order)]),\n    }\n    os.makedirs(plots.path,\
+          \ exist_ok=True)\n    for kind, page in pages.items():\n        with open(os.path.join(plots.path,\
+          \ f\"{model_type}_{kind}.html\"), \"w\", encoding=\"utf-8\") as fh:\n  \
+          \          fh.write(page)\n\n    print(f\"{model_name}: \" + \", \".join(f\"\
+          {k}={result[k]:.4f}\"\n                                         for k in\
+          \ (\"accuracy\", \"precision\", \"recall\", \"f1_score\", \"auc\")))\n\n"
+        image: python:3.11-slim
+    exec-load-data:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - load_data
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'pandas==2.2.3'\
+          \ 'minio==7.2.15'  &&  python3 -m pip install --quiet --no-warn-script-location\
+          \ 'kfp==2.15.2' '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"\
+          3.9\"' && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef load_data(\n    minio_endpoint: str,\n    minio_access_key: str,\n\
+          \    minio_secret_key: str,\n    minio_session_token: str,\n    data_bucket:\
+          \ str,\n    train_object: str,\n    test_object: str,\n    train_data: Output[Dataset],\n\
+          \    test_data: Output[Dataset],\n):\n    \"\"\"Download the train and test\
+          \ CSVs from MinIO.\"\"\"\n    import pandas as pd\n    from minio import\
+          \ Minio\n\n    if not (minio_access_key and minio_secret_key):\n       \
+          \ raise ValueError(\n            \"MinIO credentials are empty. Launch the\
+          \ pipeline from the HumAIne Swarm \"\n            \"Assistant, which fills\
+          \ them from your session, or pass them explicitly.\"\n        )\n    secure\
+          \ = not minio_endpoint.startswith(\"http://\")\n    endpoint = minio_endpoint.split(\"\
+          ://\", 1)[-1].rstrip(\"/\")\n    client = Minio(\n        endpoint,\n  \
+          \      access_key=minio_access_key,\n        secret_key=minio_secret_key,\n\
+          \        session_token=minio_session_token or None,\n        secure=secure,\n\
+          \    )\n\n    for obj, artifact in ((train_object, train_data), (test_object,\
+          \ test_data)):\n        client.fget_object(data_bucket, obj, artifact.path)\n\
+          \        df = pd.read_csv(artifact.path, encoding=\"utf-8\")\n        artifact.metadata.update({\n\
+          \            \"source\": f\"s3://{data_bucket}/{obj}\",\n            \"\
+          rows\": len(df),\n            \"auto_correctable\": int(df[\"is_obvious\"\
+          ].sum()),\n            \"needs_operator\": int((1 - df[\"is_obvious\"]).sum()),\n\
+          \        })\n        print(f\"Loaded s3://{data_bucket}/{obj}: {len(df)}\
+          \ rows\")\n\n"
+        image: python:3.11-slim
+    exec-publish-results:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - publish_results
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'minio==7.2.15'\
+          \  &&  python3 -m pip install --quiet --no-warn-script-location 'kfp==2.15.2'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"' && \"\
+          $0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef publish_results(\n    minio_endpoint: str,\n    minio_access_key:\
+          \ str,\n    minio_secret_key: str,\n    minio_session_token: str,\n    output_bucket:\
+          \ str,\n    pipeline_name: str,\n    run_id: str,\n    data_bucket: str,\n\
+          \    train_object: str,\n    test_object: str,\n    lr_c: float,\n    rf_n_estimators:\
+          \ int,\n    rf_max_depth: int,\n    random_state: int,\n    lr_model: Input[Model],\n\
+          \    rf_model: Input[Model],\n    lr_metrics: Input[Dataset],\n    rf_metrics:\
+          \ Input[Dataset],\n    lr_report: Input[HTML],\n    rf_report: Input[HTML],\n\
+          \    lr_plots: Input[Artifact],\n    rf_plots: Input[Artifact],\n    summary:\
+          \ Output[Metrics],\n):\n    \"\"\"Upload models, metrics and reports to\
+          \ MinIO and pick the best model by F1.\"\"\"\n    import datetime\n    import\
+          \ io\n    import json\n    import os\n\n    from minio import Minio\n\n\
+          \    secure = not minio_endpoint.startswith(\"http://\")\n    endpoint =\
+          \ minio_endpoint.split(\"://\", 1)[-1].rstrip(\"/\")\n    client = Minio(\n\
+          \        endpoint,\n        access_key=minio_access_key,\n        secret_key=minio_secret_key,\n\
+          \        session_token=minio_session_token or None,\n        secure=secure,\n\
+          \    )\n    base = f\"kubeflow/{pipeline_name}/{run_id}\"\n\n    uploads\
+          \ = [\n        (lr_model.path, f\"{base}/models/logistic_regression.joblib\"\
+          , \"application/octet-stream\"),\n        (rf_model.path, f\"{base}/models/random_forest.joblib\"\
+          , \"application/octet-stream\"),\n        (lr_metrics.path, f\"{base}/metrics/logistic_regression_metrics.json\"\
+          , \"application/json\"),\n        (rf_metrics.path, f\"{base}/metrics/random_forest_metrics.json\"\
+          , \"application/json\"),\n        (lr_report.path, f\"{base}/reports/logistic_regression_report.html\"\
+          , \"text/html\"),\n        (rf_report.path, f\"{base}/reports/random_forest_report.html\"\
+          , \"text/html\"),\n    ]\n    for plots in (lr_plots, rf_plots):\n     \
+          \   for name in sorted(os.listdir(plots.path)):\n            uploads.append((os.path.join(plots.path,\
+          \ name), f\"{base}/plots/{name}\", \"text/html\"))\n    for src, dst, content_type\
+          \ in uploads:\n        client.fput_object(output_bucket, dst, src, content_type=content_type)\n\
+          \        print(f\"Uploaded s3://{output_bucket}/{dst}\")\n\n    results\
+          \ = []\n    for path in (lr_metrics.path, rf_metrics.path):\n        with\
+          \ open(path, encoding=\"utf-8\") as fh:\n            results.append(json.load(fh))\n\
+          \    best = max(results, key=lambda r: r[\"f1_score\"])\n\n    run_summary\
+          \ = {\n        \"pipeline_name\": pipeline_name,\n        \"run_id\": run_id,\n\
+          \        \"completed_at\": datetime.datetime.now(datetime.timezone.utc).isoformat(),\n\
+          \        \"task\": \"Decide whether a citizen's mistaken entry can be auto-corrected\
+          \ \"\n                \"(obvious mistake) or needs a human operator.\",\n\
+          \        \"data_source\": {\"train\": f\"s3://{data_bucket}/{train_object}\"\
+          ,\n                        \"test\": f\"s3://{data_bucket}/{test_object}\"\
+          },\n        \"hyperparameters\": {\"lr_c\": lr_c, \"rf_n_estimators\": rf_n_estimators,\n\
+          \                            \"rf_max_depth\": rf_max_depth, \"random_state\"\
+          : random_state},\n        \"best_model\": best[\"model_name\"],\n      \
+          \  \"selection_metric\": \"f1_score\",\n        \"models\": {r[\"model_name\"\
+          ]: {k: r[k] for k in (\"accuracy\", \"precision\", \"recall\",\n       \
+          \                                                \"f1_score\", \"auc\")}\n\
+          \                   for r in results},\n        \"artifacts_prefix\": f\"\
+          s3://{output_bucket}/{base}/\",\n    }\n    # run_parameters.json is the\
+          \ file the assistant's compare/metrics tools read hyperparameters from\n\
+          \    run_parameters = {\n        \"pipeline_name\": pipeline_name,\n   \
+          \     \"run_id\": run_id,\n        \"parameters\": {**run_summary[\"hyperparameters\"\
+          ],\n                       \"train_data\": run_summary[\"data_source\"][\"\
+          train\"],\n                       \"test_data\": run_summary[\"data_source\"\
+          ][\"test\"]},\n    }\n    for name, doc in ((\"run_summary.json\", run_summary),\
+          \ (\"run_parameters.json\", run_parameters)):\n        body = json.dumps(doc,\
+          \ indent=2).encode(\"utf-8\")\n        client.put_object(output_bucket,\
+          \ f\"{base}/metadata/{name}\", io.BytesIO(body),\n                     \
+          \     len(body), content_type=\"application/json\")\n\n    summary.log_metric(\"\
+          best_model_f1\", round(best[\"f1_score\"], 4))\n    summary.metadata[\"\
+          best_model\"] = best[\"model_name\"]\n    summary.metadata[\"artifacts_prefix\"\
+          ] = run_summary[\"artifacts_prefix\"]\n    print(f\"Best model: {best['model_name']}\
+          \ (F1 {best['f1_score']:.4f})\")\n\n"
+        image: python:3.11-slim
+    exec-train-model:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - train_model
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'pandas==2.2.3'\
+          \ 'scikit-learn==1.5.2'  &&  python3 -m pip install --quiet --no-warn-script-location\
+          \ 'kfp==2.15.2' '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"\
+          3.9\"' && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef train_model(\n    train_features: Input[Dataset],\n    model_type:\
+          \ str,\n    lr_c: float,\n    rf_n_estimators: int,\n    rf_max_depth: int,\n\
+          \    random_state: int,\n    model: Output[Model],\n):\n    \"\"\"Train\
+          \ a logistic regression or a random forest on the training features.\"\"\
+          \"\n    import joblib\n    import pandas as pd\n    from sklearn.ensemble\
+          \ import RandomForestClassifier\n    from sklearn.linear_model import LogisticRegression\n\
+          \    from sklearn.pipeline import make_pipeline\n    from sklearn.preprocessing\
+          \ import StandardScaler\n\n    df = pd.read_csv(train_features.path)\n \
+          \   feature_names = [c for c in df.columns if c not in (\"field_type\",\
+          \ \"label\")]\n    X, y = df[feature_names], df[\"label\"]\n\n    if model_type\
+          \ == \"logistic_regression\":\n        clf = make_pipeline(StandardScaler(),\
+          \ LogisticRegression(C=lr_c, max_iter=1000))\n        params = {\"C\": lr_c}\n\
+          \    elif model_type == \"random_forest\":\n        clf = RandomForestClassifier(n_estimators=rf_n_estimators,\
+          \ max_depth=rf_max_depth,\n                                     random_state=random_state)\n\
+          \        params = {\"n_estimators\": rf_n_estimators, \"max_depth\": rf_max_depth}\n\
+          \    else:\n        raise ValueError(f\"Unknown model_type: {model_type}\"\
+          )\n\n    clf.fit(X, y)\n    joblib.dump({\"model\": clf, \"model_type\"\
+          : model_type, \"feature_names\": feature_names},\n                model.path)\n\
+          \    model.metadata.update({\"model_type\": model_type, \"train_rows\":\
+          \ len(df), **params})\n    print(f\"Trained {model_type} on {len(df)} rows,\
+          \ train accuracy {clf.score(X, y):.4f}\")\n\n"
+        image: python:3.11-slim
+    exec-train-model-2:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - train_model
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'pandas==2.2.3'\
+          \ 'scikit-learn==1.5.2'  &&  python3 -m pip install --quiet --no-warn-script-location\
+          \ 'kfp==2.15.2' '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"\
+          3.9\"' && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef train_model(\n    train_features: Input[Dataset],\n    model_type:\
+          \ str,\n    lr_c: float,\n    rf_n_estimators: int,\n    rf_max_depth: int,\n\
+          \    random_state: int,\n    model: Output[Model],\n):\n    \"\"\"Train\
+          \ a logistic regression or a random forest on the training features.\"\"\
+          \"\n    import joblib\n    import pandas as pd\n    from sklearn.ensemble\
+          \ import RandomForestClassifier\n    from sklearn.linear_model import LogisticRegression\n\
+          \    from sklearn.pipeline import make_pipeline\n    from sklearn.preprocessing\
+          \ import StandardScaler\n\n    df = pd.read_csv(train_features.path)\n \
+          \   feature_names = [c for c in df.columns if c not in (\"field_type\",\
+          \ \"label\")]\n    X, y = df[feature_names], df[\"label\"]\n\n    if model_type\
+          \ == \"logistic_regression\":\n        clf = make_pipeline(StandardScaler(),\
+          \ LogisticRegression(C=lr_c, max_iter=1000))\n        params = {\"C\": lr_c}\n\
+          \    elif model_type == \"random_forest\":\n        clf = RandomForestClassifier(n_estimators=rf_n_estimators,\
+          \ max_depth=rf_max_depth,\n                                     random_state=random_state)\n\
+          \        params = {\"n_estimators\": rf_n_estimators, \"max_depth\": rf_max_depth}\n\
+          \    else:\n        raise ValueError(f\"Unknown model_type: {model_type}\"\
+          )\n\n    clf.fit(X, y)\n    joblib.dump({\"model\": clf, \"model_type\"\
+          : model_type, \"feature_names\": feature_names},\n                model.path)\n\
+          \    model.metadata.update({\"model_type\": model_type, \"train_rows\":\
+          \ len(df), **params})\n    print(f\"Trained {model_type} on {len(df)} rows,\
+          \ train accuracy {clf.score(X, y):.4f}\")\n\n"
+        image: python:3.11-slim
+pipelineInfo:
+  description: 'Smart Cities - Auto-Correction Eligibility Classifier: decides whether
+    a citizen''s mistaken application entry can be fixed automatically or needs a
+    human operator. Trains a logistic regression and a random forest on the synthetic
+    IBM2 ''obvious mistake'' dataset and publishes models, metrics and reports to
+    MinIO.'
+  name: smart-cities-auto-correction-classifier
+root:
+  dag:
+    tasks:
+      build-features:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-build-features
+        dependentTasks:
+        - load-data
+        inputs:
+          artifacts:
+            test_data:
+              taskOutputArtifact:
+                outputArtifactKey: test_data
+                producerTask: load-data
+            train_data:
+              taskOutputArtifact:
+                outputArtifactKey: train_data
+                producerTask: load-data
+        taskInfo:
+          name: build-features
+      evaluate-model:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-evaluate-model
+        dependentTasks:
+        - build-features
+        - train-model
+        inputs:
+          artifacts:
+            model:
+              taskOutputArtifact:
+                outputArtifactKey: model
+                producerTask: train-model
+            test_features:
+              taskOutputArtifact:
+                outputArtifactKey: test_features
+                producerTask: build-features
+        taskInfo:
+          name: evaluate-model
+      evaluate-model-2:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-evaluate-model-2
+        dependentTasks:
+        - build-features
+        - train-model-2
+        inputs:
+          artifacts:
+            model:
+              taskOutputArtifact:
+                outputArtifactKey: model
+                producerTask: train-model-2
+            test_features:
+              taskOutputArtifact:
+                outputArtifactKey: test_features
+                producerTask: build-features
+        taskInfo:
+          name: evaluate-model-2
+      load-data:
+        cachingOptions: {}
+        componentRef:
+          name: comp-load-data
+        inputs:
+          parameters:
+            data_bucket:
+              componentInputParameter: data_bucket
+            minio_access_key:
+              componentInputParameter: minio_access_key
+            minio_endpoint:
+              componentInputParameter: minio_endpoint
+            minio_secret_key:
+              componentInputParameter: minio_secret_key
+            minio_session_token:
+              componentInputParameter: minio_session_token
+            test_object:
+              componentInputParameter: test_object
+            train_object:
+              componentInputParameter: train_object
+        taskInfo:
+          name: load-data
+      publish-results:
+        cachingOptions: {}
+        componentRef:
+          name: comp-publish-results
+        dependentTasks:
+        - evaluate-model
+        - evaluate-model-2
+        - train-model
+        - train-model-2
+        inputs:
+          artifacts:
+            lr_metrics:
+              taskOutputArtifact:
+                outputArtifactKey: metrics_json
+                producerTask: evaluate-model
+            lr_model:
+              taskOutputArtifact:
+                outputArtifactKey: model
+                producerTask: train-model
+            lr_plots:
+              taskOutputArtifact:
+                outputArtifactKey: plots
+                producerTask: evaluate-model
+            lr_report:
+              taskOutputArtifact:
+                outputArtifactKey: report
+                producerTask: evaluate-model
+            rf_metrics:
+              taskOutputArtifact:
+                outputArtifactKey: metrics_json
+                producerTask: evaluate-model-2
+            rf_model:
+              taskOutputArtifact:
+                outputArtifactKey: model
+                producerTask: train-model-2
+            rf_plots:
+              taskOutputArtifact:
+                outputArtifactKey: plots
+                producerTask: evaluate-model-2
+            rf_report:
+              taskOutputArtifact:
+                outputArtifactKey: report
+                producerTask: evaluate-model-2
+          parameters:
+            data_bucket:
+              componentInputParameter: data_bucket
+            lr_c:
+              componentInputParameter: lr_c
+            minio_access_key:
+              componentInputParameter: minio_access_key
+            minio_endpoint:
+              componentInputParameter: minio_endpoint
+            minio_secret_key:
+              componentInputParameter: minio_secret_key
+            minio_session_token:
+              componentInputParameter: minio_session_token
+            output_bucket:
+              componentInputParameter: output_bucket
+            pipeline_name:
+              runtimeValue:
+                constant: smart-cities-auto-correction-classifier
+            random_state:
+              componentInputParameter: random_state
+            rf_max_depth:
+              componentInputParameter: rf_max_depth
+            rf_n_estimators:
+              componentInputParameter: rf_n_estimators
+            run_id:
+              runtimeValue:
+                constant: '{{$.pipeline_job_uuid}}'
+            test_object:
+              componentInputParameter: test_object
+            train_object:
+              componentInputParameter: train_object
+        taskInfo:
+          name: publish-results
+      train-model:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-train-model
+        dependentTasks:
+        - build-features
+        inputs:
+          artifacts:
+            train_features:
+              taskOutputArtifact:
+                outputArtifactKey: train_features
+                producerTask: build-features
+          parameters:
+            lr_c:
+              componentInputParameter: lr_c
+            model_type:
+              runtimeValue:
+                constant: logistic_regression
+            random_state:
+              componentInputParameter: random_state
+            rf_max_depth:
+              componentInputParameter: rf_max_depth
+            rf_n_estimators:
+              componentInputParameter: rf_n_estimators
+        taskInfo:
+          name: train-model
+      train-model-2:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-train-model-2
+        dependentTasks:
+        - build-features
+        inputs:
+          artifacts:
+            train_features:
+              taskOutputArtifact:
+                outputArtifactKey: train_features
+                producerTask: build-features
+          parameters:
+            lr_c:
+              componentInputParameter: lr_c
+            model_type:
+              runtimeValue:
+                constant: random_forest
+            random_state:
+              componentInputParameter: random_state
+            rf_max_depth:
+              componentInputParameter: rf_max_depth
+            rf_n_estimators:
+              componentInputParameter: rf_n_estimators
+        taskInfo:
+          name: train-model-2
+  inputDefinitions:
+    parameters:
+      data_bucket:
+        defaultValue: smart-cities-data
+        isOptional: true
+        parameterType: STRING
+      lr_c:
+        defaultValue: 1.0
+        isOptional: true
+        parameterType: NUMBER_DOUBLE
+      minio_access_key:
+        defaultValue: ''
+        isOptional: true
+        parameterType: STRING
+      minio_endpoint:
+        defaultValue: s3-minio.humaine-horizon.eu
+        isOptional: true
+        parameterType: STRING
+      minio_secret_key:
+        defaultValue: ''
+        isOptional: true
+        parameterType: STRING
+      minio_session_token:
+        defaultValue: ''
+        isOptional: true
+        parameterType: STRING
+      output_bucket:
+        defaultValue: smart-cities-data
+        isOptional: true
+        parameterType: STRING
+      random_state:
+        defaultValue: 42.0
+        isOptional: true
+        parameterType: NUMBER_INTEGER
+      rf_max_depth:
+        defaultValue: 8.0
+        isOptional: true
+        parameterType: NUMBER_INTEGER
+      rf_n_estimators:
+        defaultValue: 200.0
+        isOptional: true
+        parameterType: NUMBER_INTEGER
+      test_object:
+        defaultValue: auto-correction/test.csv
+        isOptional: true
+        parameterType: STRING
+      train_object:
+        defaultValue: auto-correction/train.csv
+        isOptional: true
+        parameterType: STRING
+schemaVersion: 2.1.0
+sdkVersion: kfp-2.15.2
