@@ -1486,6 +1486,16 @@ MINIO_CREDENTIAL_PARAMS = ("minio_access_key", "minio_secret_key", "minio_sessio
 INJECTED_PARAM_PLACEHOLDER = "<injected from session>"
 
 
+def _normalize_minio_endpoint(endpoint: str) -> str:
+    return endpoint.strip().split("://", 1)[-1].rstrip("/").lower()
+
+
+def _platform_minio_endpoint() -> str:
+    """The configured MinIO endpoint as pipelines expect it (http:// prefix when not TLS)."""
+    host = _normalize_minio_endpoint(MINIO_ENDPOINT)
+    return host if MINIO_SECURE else f"http://{host}"
+
+
 def _latest_pipeline_version(kf_client, pipeline_id: str):
     """Return the newest version of a pipeline, or None if it has none."""
     response = kf_client.list_pipeline_versions(
@@ -1584,7 +1594,18 @@ async def run_pipeline(
         # Fill MinIO credential params from the user's STS session so the model never asks for them
         if pipeline_id:
             missing = [name for name in MINIO_CREDENTIAL_PARAMS if not params.get(name)]
-            if missing and "minio_session_token" in _pipeline_input_names(kf_client, pipeline_id, version_id):
+            input_names = _pipeline_input_names(kf_client, pipeline_id, version_id) if missing else set()
+            if missing and "minio_session_token" in input_names:
+                # Session keys may only go to the platform MinIO, never to an endpoint chosen by the caller.
+                if "minio_endpoint" in input_names:
+                    requested = params.get("minio_endpoint")
+                    if requested and _normalize_minio_endpoint(requested) != _normalize_minio_endpoint(MINIO_ENDPOINT):
+                        return {
+                            "error": f"minio_endpoint must be the platform MinIO ({MINIO_ENDPOINT}) when your "
+                                     "session credentials are used. Leave minio_endpoint out."
+                        }
+                    params["minio_endpoint"] = _platform_minio_endpoint()
+                    display_params["minio_endpoint"] = params["minio_endpoint"]
                 credentials = await UserSessionManager.get_or_refresh_minio_credentials() or {}
                 session_values = {
                     "minio_access_key": credentials.get("access_key"),

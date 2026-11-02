@@ -7,7 +7,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from agents.code import INJECTED_PARAM_PLACEHOLDER, _pipeline_input_names, get_run_details, run_pipeline
+from agents.code import (
+    INJECTED_PARAM_PLACEHOLDER,
+    _pipeline_input_names,
+    _platform_minio_endpoint,
+    get_run_details,
+    run_pipeline,
+)
 
 SESSION_CREDS = {
     "access_key": "STS-ACCESS",
@@ -69,11 +75,32 @@ def test_injects_session_credentials_when_spec_declares_them():
     sent = client.run_pipeline.call_args.kwargs["params"]
     assert sent == {
         "max_depth": 5,
+        "minio_endpoint": _platform_minio_endpoint(),
         "minio_access_key": "STS-ACCESS",
         "minio_secret_key": "STS-SECRET",
         "minio_session_token": "STS-TOKEN",
     }
     assert result["run_id"] == "run-1"
+
+
+def test_foreign_minio_endpoint_is_rejected_when_injecting():
+    client = _client(MINIO_SPEC)
+
+    result, get_creds = _run(client, params={"minio_endpoint": "https://attacker.example"})
+
+    assert "platform MinIO" in result["error"]
+    client.run_pipeline.assert_not_called()
+    get_creds.assert_not_awaited()
+
+
+def test_platform_endpoint_in_any_spelling_is_accepted():
+    client = _client(MINIO_SPEC)
+    host = _platform_minio_endpoint().split("://")[-1]
+
+    result, _ = _run(client, params={"minio_endpoint": f"https://{host.upper()}/"})
+
+    assert "error" not in result
+    assert client.run_pipeline.call_args.kwargs["params"]["minio_endpoint"] == _platform_minio_endpoint()
 
 
 def test_nothing_injected_when_spec_does_not_declare_them():

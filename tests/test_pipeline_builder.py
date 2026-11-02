@@ -73,7 +73,7 @@ def test_good_pipeline_is_accepted():
         (HEADER, "no @dsl.pipeline"),
         (GOOD_PIPELINE + "\n\n@dsl.pipeline\ndef other():\n    make_data(rows=1)\n", "exactly one @dsl.pipeline"),
         (HEADER.replace('base_image="python:3.11-slim")', "base_image=__import__('os').getcwd())"), "literals"),
-        ("from kfp import dsl\nimport json\n@json.pipeline\ndef p():\n    pass\n", "must be kfp's"),
+        ("from kfp import dsl\nimport json\n@json.pipeline\ndef p():\n    pass\n", "kfp's"),
         ("def broken(:\n", "syntax error"),
     ],
 )
@@ -81,6 +81,53 @@ def test_unsafe_sources_are_rejected(source, expected):
     problems = validate_pipeline_source(source)
     assert problems, "expected the source to be rejected"
     assert any(expected in problem for problem in problems), problems
+
+
+_COMPONENT = "@dsl.component\ndef c():\n    pass\n"
+
+
+# Bypasses found in security review. Only parsed by the validator, never executed.
+@pytest.mark.parametrize(
+    "source",
+    [
+        # calls hidden in decorator chains and subscripts
+        "from kfp import dsl\n@dsl.If(__import__('os').getcwd()).component\ndef c():\n    pass\n"
+        "@dsl.pipeline\ndef p():\n    c()\n",
+        "from kfp import dsl\n@dsl.x[open('/etc/hosts')].component\ndef c():\n    pass\n"
+        "@dsl.pipeline\ndef p():\n    c()\n",
+        "from kfp import dsl\nfrom kfp.dsl import If as component\n@component\ndef c():\n    pass\n"
+        "@dsl.pipeline\ndef p():\n    c()\n",
+        # a call inside an f-string format spec
+        "from kfp import dsl\nX = f\"{1:{open('/etc/hosts')}}\"\n" + _COMPONENT + "@dsl.pipeline\ndef p():\n    c()\n",
+        # reaching os through kfp submodules or aliases
+        "from kfp import dsl\nfrom kfp.dsl import types\n" + _COMPONENT
+        + "@dsl.pipeline\ndef p():\n    types.os.environ.get('HOME')\n    c()\n",
+        "from kfp import dsl\n" + _COMPONENT + "@dsl.pipeline\ndef p():\n    y = dsl\n    y.types.os.environ.get('HOME')\n",
+        "import kfp\n@kfp.dsl.component\ndef c():\n    pass\n@kfp.dsl.pipeline\ndef p():\n    kfp.dsl.types.os.getcwd()\n",
+        "from kfp import client\nfrom kfp import dsl\n" + _COMPONENT + "@dsl.pipeline\ndef p():\n    c()\n",
+        # running a component body at compile time through a hijacked builtin
+        "from kfp import dsl\n" + _COMPONENT + "@dsl.pipeline\ndef p():\n    len = c.python_func\n    len()\n",
+        "from kfp import dsl\n" + _COMPONENT + "@dsl.pipeline\ndef p():\n    for len in [c]:\n        len()\n",
+        "from kfp import dsl\n" + _COMPONENT + "@dsl.pipeline\ndef p():\n    t = c()\n    t._component\n",
+        "from kfp import dsl\n" + _COMPONENT + "@dsl.pipeline\ndef p(len: int = 1):\n    c()\n",
+        "from kfp import dsl\n" + _COMPONENT
+        + "@dsl.pipeline\ndef p():\n    t = c()\n    sorted(['/tmp/x'], key=t.component_spec.save_to_component_yaml)\n",
+        # dunder aliases and memory blow-ups
+        "from kfp import dsl\nimport json as __builtins__\n" + _COMPONENT + "@dsl.pipeline\ndef p():\n    c()\n",
+        "from kfp import dsl\nX = 'a' * 10 ** 10\n" + _COMPONENT + "@dsl.pipeline\ndef p():\n    c()\n",
+    ],
+)
+def test_security_review_bypasses_are_rejected(source):
+    assert validate_pipeline_source(source)
+
+
+def test_kfp_dsl_qualified_pipeline_is_accepted():
+    source = (
+        "import kfp\n\n\n@kfp.dsl.component(base_image='python:3.11-slim')\ndef c(x: str) -> str:\n    return x\n\n\n"
+        "@kfp.dsl.pipeline(name='q')\ndef p(x: str = 'a', run: str = kfp.dsl.PIPELINE_JOB_ID_PLACEHOLDER):\n"
+        "    with kfp.dsl.If(x == 'a'):\n        c(x=run)\n"
+    )
+    assert validate_pipeline_source(source) == []
 
 
 def test_oversized_source_is_rejected():

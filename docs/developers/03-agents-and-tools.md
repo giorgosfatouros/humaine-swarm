@@ -101,12 +101,25 @@ The `pipeline_builder` pack (opt-in: `"default_enabled": False` in `TOOL_PACKS`,
 - **upload_pipeline_draft** resolves the namespace with `resolve_kubeflow_namespace()`. That never yields `None`, so the shared catalog cannot be targeted, and it rejects namespaces outside the user's discovered list. It then asks the user with a `cl.AskActionMessage` Register/Cancel prompt (5-minute timeout). Only on Register does it call `upload_pipeline(..., namespace=ns)`, or `upload_pipeline_version(...)` with a `v<timestamp>` version name when `find_pipeline_id()` finds a pipeline of the same name in that namespace. The confirmation is enforced in code, not left to the prompt. After the upload the tool posts its own message with the exact `pipeline_id`, `version_id` and Kubeflow link. In live testing the model garbled the pipeline UUID when retyping it in prose, so the IDs no longer depend on the model.
 
 **Compile safety.** Compiling runs the module's top level and the `@dsl.pipeline` body on the app server, so `validate_pipeline_source()` checks the AST before anything runs:
-- Top level: only kfp / `typing` / a few stdlib imports, literal constants, `@dsl.component` / `@dsl.pipeline` functions, and a skipped `if __name__ == "__main__":` block.
-- Decorator arguments, defaults and annotations: no calls.
-- Pipeline body: only calls to this module's components, `dsl.If` / `ParallelFor` / `ExitHandler` / `Collected` / ..., basic builtins and allowlisted task methods.
-- Everywhere: no dunder names, no `set_display_name()` (it crashes the cluster's KFP driver).
+- **Imports:** `from kfp import dsl` / `compiler`, `import kfp`, and `from kfp.dsl import` only for an allowlist (artifact types, the `dsl` helpers, `component`, `pipeline`, `PIPELINE_*` placeholders), plus `typing` and a few stdlib modules. No dunder names or aliases.
+- **Top level:** literal constants (no calls, no `*` / `**`), `@dsl.component` / `@dsl.pipeline` functions, and a skipped `if __name__ == "__main__":` block.
+- **Decorators:** exactly `dsl.component` / `dsl.pipeline` (or `kfp.dsl.…`, or names imported under those names) with literal arguments. A backstop scan rejects any call or dunder outside function bodies other than the decorator itself.
+- **Pipeline body:**
+  - Only calls to this module's components, `dsl.If` / `ParallelFor` / `ExitHandler` / `Collected` / ..., a few builtins without callbacks (no `sorted` / `min` / `max`, whose `key=` could call arbitrary methods) and allowlisted task methods.
+  - Components may only be called. Component, builtin, constant and import names cannot be reassigned or shadowed by parameters.
+  - kfp module names are usable only as `dsl.<helper>(...)` / `dsl.<CONSTANT>`.
+  - No `_private` or dunder attributes, and no `set_display_name()` (it crashes the cluster's KFP driver).
 
-Component bodies are not checked, because they run only in the user's own Kubeflow pods. `compile_pipeline_source()` then compiles in `python -I -W ignore` with a minimal environment (`PATH`, `HOME`=temp dir, `LANG`; no API keys or tokens) and a 60 s timeout, and returns a trimmed traceback (user frames plus the error) for the model to fix. `kubeflow/smart_cities/auto_correction_pipeline.py` passes the validator and is used as a test fixture.
+Component bodies are not checked, because they run only in the user's own Kubeflow pods.
+
+`compile_pipeline_source()` then compiles in `python -I -W ignore`:
+- with a minimal environment (`PATH`, `HOME`=temp dir, `LANG`; no API keys or tokens);
+- with a 60 s timeout, and on Linux a CPU and 2 GB memory limit (`RLIMIT_CPU` / `RLIMIT_AS`);
+- returning a trimmed traceback (user frames plus the error) for the model to fix.
+
+`kubeflow/smart_cities/auto_correction_pipeline.py` passes the validator and is used as a test fixture. `tests/test_pipeline_builder.py` keeps the bypasses found in security review as regression cases.
+
+The AST allowlist is the main line of defence. The subprocess still has the app user's filesystem and network access, so running compilation in an isolated container (no network, read-only filesystem, no secrets) would be the stronger option.
 
 ### Visualization
 

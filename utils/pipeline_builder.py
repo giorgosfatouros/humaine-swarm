@@ -25,12 +25,18 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+
+try:
+    import resource
+except ImportError:  # Windows
+    resource = None
 from typing import Any, Dict, List, Optional, Tuple
 
 import yaml
 
 MAX_SOURCE_BYTES = 100_000
 COMPILE_TIMEOUT_SECONDS = 60
+COMPILE_MEMORY_BYTES = 2 * 1024 ** 3
 
 # Modules a pipeline file may import. Only kfp names may be used in the pipeline
 # body; the others are allowed so a normal pipeline file (e.g. one that compiles
@@ -43,6 +49,12 @@ _DSL_CALLS = {
     "If", "Elif", "Else", "Condition", "ParallelFor", "ExitHandler",
     "Collected", "OneOf", "importer",
 }
+_DECORATORS = {"component", "pipeline"}
+# Names that may be imported from kfp.dsl (plus PIPELINE_* placeholder constants).
+_DSL_IMPORTABLE = _DSL_CALLS | _DECORATORS | {
+    "Input", "Output", "InputPath", "OutputPath", "Artifact", "Dataset", "Model", "Metrics",
+    "ClassificationMetrics", "SlicedClassificationMetrics", "HTML", "Markdown",
+}
 # Methods the pipeline body may call on tasks, outputs and plain containers.
 _TASK_METHODS = {
     "after", "set_caching_options", "set_cpu_limit", "set_cpu_request",
@@ -51,15 +63,16 @@ _TASK_METHODS = {
     "ignore_upstream_failure", "add_node_selector_constraint",
     "items", "keys", "values", "get", "append", "update",
 }
+# No sorted/min/max/map: their key= would let the body call any method it can reach.
 _SAFE_BUILTINS = {
-    "dict", "list", "tuple", "range", "len", "str", "int", "float", "bool",
-    "zip", "enumerate", "min", "max", "sorted",
+    "dict", "list", "tuple", "range", "len", "str", "int", "float", "bool", "zip", "enumerate",
 }
 _FORBIDDEN_IN_PIPELINE = (
     ast.Import, ast.ImportFrom, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef,
     ast.Lambda, ast.Global, ast.Nonlocal, ast.While, ast.Try, ast.Await, ast.Yield,
     ast.YieldFrom, ast.AsyncWith, ast.AsyncFor, ast.Delete,
 )
+_CONSTANT_NAME = re.compile(r"[A-Z][A-Z0-9_]*")
 
 _COMPILE_RUNNER = """
 import importlib.util, sys
@@ -92,19 +105,10 @@ def _is_main_guard(node: ast.stmt) -> bool:
     )
 
 
-def _decorator_kind(decorator: ast.expr) -> Optional[str]:
-    """Return 'component' or 'pipeline' for `dsl.component` / `@dsl.pipeline(...)` style decorators."""
-    target = decorator.func if isinstance(decorator, ast.Call) else decorator
-    if isinstance(target, ast.Attribute) and target.attr in ("component", "pipeline"):
-        return target.attr
-    if isinstance(target, ast.Name) and target.id in ("component", "pipeline"):
-        return target.id
-    return None
-
-
-def _attribute_root(node: ast.expr) -> Optional[str]:
-    while isinstance(node, (ast.Attribute, ast.Subscript, ast.Call)):
-        node = node.func if isinstance(node, ast.Call) else node.value
+def _name_root(node: ast.expr) -> Optional[str]:
+    """Root name of an attribute/subscript chain such as `a.b[0].c` (None if it starts elsewhere)."""
+    while isinstance(node, (ast.Attribute, ast.Subscript)):
+        node = node.value
     return node.id if isinstance(node, ast.Name) else None
 
 
@@ -114,29 +118,62 @@ class _Validator:
         self.errors: List[str] = []
         self.constants: set[str] = set()
         self.components: set[str] = set()
-        self.kfp_names: set[str] = set()  # module aliases such as `dsl`, `kfp`, `compiler`
-        self.dsl_imports: set[str] = set()  # names imported from kfp.dsl (If, Collected, ...)
+        self.dsl_modules: set[str] = set()  # names bound to the kfp.dsl module (`dsl`)
+        self.kfp_roots: set[str] = set()  # names bound to the kfp package (`import kfp`)
+        self.compiler_names: set[str] = set()  # names bound to kfp.compiler
+        self.dsl_imports: Dict[str, str] = {}  # bound name -> original name, from `from kfp.dsl import ...`
         self.other_imports: set[str] = set()
         self.pipelines: List[ast.FunctionDef] = []
 
     def error(self, node: ast.AST, message: str) -> None:
         self.errors.append(f"line {getattr(node, 'lineno', '?')}: {message}")
 
+    # -- names --------------------------------------------------------------
+
+    def module_names(self) -> set[str]:
+        """Names that refer to imported modules or kfp objects and must not be used freely."""
+        return self.dsl_modules | self.kfp_roots | self.compiler_names | self.other_imports | set(self.dsl_imports)
+
+    def is_dsl_ref(self, node: ast.expr) -> bool:
+        """`dsl` or `kfp.dsl`."""
+        if isinstance(node, ast.Name):
+            return node.id in self.dsl_modules
+        return (
+            isinstance(node, ast.Attribute) and node.attr == "dsl"
+            and isinstance(node.value, ast.Name) and node.value.id in self.kfp_roots
+        )
+
+    def dsl_member(self, node: ast.expr) -> Optional[str]:
+        """Return X for `dsl.X` / `kfp.dsl.X` / a name imported from kfp.dsl, else None."""
+        if isinstance(node, ast.Attribute) and self.is_dsl_ref(node.value):
+            return node.attr
+        if isinstance(node, ast.Name) and node.id in self.dsl_imports:
+            return self.dsl_imports[node.id]
+        return None
+
+    def decorator_kind(self, decorator: ast.expr) -> Optional[str]:
+        """'component' or 'pipeline' for exactly dsl.component / dsl.pipeline (optionally called), else None."""
+        target = decorator.func if isinstance(decorator, ast.Call) else decorator
+        member = self.dsl_member(target)
+        return member if member in _DECORATORS else None
+
     # -- top level ---------------------------------------------------------
 
     def run(self) -> List[str]:
         body = self.tree.body
+        checked: List[ast.stmt] = []
         for index, node in enumerate(body):
             if index == 0 and isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant):
                 continue  # module docstring
+            if _is_main_guard(node):
+                continue
+            checked.append(node)
             if isinstance(node, (ast.Import, ast.ImportFrom)):
                 self.check_import(node)
             elif isinstance(node, (ast.Assign, ast.AnnAssign)):
                 self.check_constant(node)
             elif isinstance(node, ast.FunctionDef):
                 self.check_function(node)
-            elif _is_main_guard(node):
-                continue
             else:
                 self.error(node, f"{type(node).__name__} is not allowed at module level; "
                                  "only imports, constants, @dsl.component and @dsl.pipeline functions")
@@ -148,13 +185,50 @@ class _Validator:
             self.errors.append(f"exactly one @dsl.pipeline function is allowed (found {names})")
         for pipeline in self.pipelines:
             self.check_pipeline_body(pipeline)
+        for node in checked:
+            self.scan_outside_bodies(node)
         return self.errors
 
+    def scan_outside_bodies(self, stmt: ast.stmt) -> None:
+        """Backstop: outside function bodies only the decorator itself may be a call, and no dunders."""
+        allowed_calls = set()
+        stack: List[ast.AST] = [stmt]
+        while stack:
+            node = stack.pop()
+            if isinstance(node, ast.FunctionDef):
+                allowed_calls.update(d for d in node.decorator_list if isinstance(d, ast.Call))
+                stack.extend(node.decorator_list)
+                stack.append(node.args)
+                if node.returns is not None:
+                    stack.append(node.returns)
+                continue  # bodies: components never run here; the pipeline body is checked separately
+            if isinstance(node, ast.Call) and node not in allowed_calls:
+                self.error(node, "function calls are only allowed inside component and pipeline functions")
+            elif isinstance(node, (ast.Lambda, ast.NamedExpr)):
+                self.error(node, f"{type(node).__name__} is not allowed outside function bodies")
+            elif isinstance(node, ast.Name) and _is_dunder(node.id) or \
+                    isinstance(node, ast.Attribute) and _is_dunder(node.attr) or \
+                    isinstance(node, ast.arg) and _is_dunder(node.arg):
+                self.error(node, "dunder names are not allowed")
+            stack.extend(ast.iter_child_nodes(node))
+
     def check_import(self, node: ast.stmt) -> None:
+        for alias in node.names:
+            if _is_dunder(alias.name.split(".")[-1]) and alias.name != "__future__" or \
+                    alias.asname and _is_dunder(alias.asname):
+                self.error(node, "dunder names are not allowed in imports")
+                return
         if isinstance(node, ast.Import):
             for alias in node.names:
                 if alias.name in _KFP_MODULES:
-                    self.kfp_names.add((alias.asname or alias.name).split(".")[0])
+                    if alias.asname is None:
+                        self.kfp_roots.add("kfp")
+                    elif alias.name == "kfp.dsl":
+                        self.dsl_modules.add(alias.asname)
+                    elif alias.name == "kfp.compiler":
+                        self.compiler_names.add(alias.asname)
+                    else:
+                        self.kfp_roots.add(alias.asname)
                 elif alias.name in _OTHER_ALLOWED_MODULES:
                     self.other_imports.add((alias.asname or alias.name).split(".")[0])
                 else:
@@ -173,19 +247,31 @@ class _Validator:
                 continue
             bound = alias.asname or alias.name
             if module == "kfp":
-                self.kfp_names.add(bound)
+                if alias.name == "dsl":
+                    self.dsl_modules.add(bound)
+                elif alias.name == "compiler":
+                    self.compiler_names.add(bound)
+                else:
+                    self.error(node, f"'from kfp import {alias.name}' is not allowed; use 'from kfp import dsl'")
             elif module == "kfp.dsl":
-                self.dsl_imports.add(bound)
+                if alias.name not in _DSL_IMPORTABLE and not alias.name.startswith("PIPELINE_"):
+                    self.error(node, f"'from kfp.dsl import {alias.name}' is not allowed")
+                    continue
+                self.dsl_imports[bound] = alias.name
             elif module == "kfp.compiler":
-                self.kfp_names.add(bound)
+                self.compiler_names.add(bound)
             elif module != "__future__":
                 self.other_imports.add(bound)
 
-    def is_literal(self, node: ast.expr) -> bool:
+    def is_literal(self, node: Optional[ast.expr]) -> bool:
+        if node is None:
+            return True
         if isinstance(node, ast.Constant):
             return True
         if isinstance(node, ast.Name):
-            return node.id in self.constants
+            # module constants, or placeholders imported from kfp.dsl
+            return node.id in self.constants or \
+                bool(_CONSTANT_NAME.fullmatch(self.dsl_imports.get(node.id, "")))
         if isinstance(node, (ast.List, ast.Tuple, ast.Set)):
             return all(self.is_literal(e) for e in node.elts)
         if isinstance(node, ast.Dict):
@@ -193,18 +279,18 @@ class _Validator:
                 self.is_literal(v) for v in node.values
             )
         if isinstance(node, ast.BinOp):
-            return self.is_literal(node.left) and self.is_literal(node.right)
+            # no * or **: "x" * 10**9 would exhaust memory at import time
+            return isinstance(node.op, (ast.Add, ast.Sub, ast.Div, ast.FloorDiv, ast.Mod, ast.BitOr)) and \
+                self.is_literal(node.left) and self.is_literal(node.right)
         if isinstance(node, ast.UnaryOp):
             return self.is_literal(node.operand)
         if isinstance(node, ast.JoinedStr):
-            return all(
-                isinstance(v, ast.Constant) or (isinstance(v, ast.FormattedValue) and self.is_literal(v.value))
-                for v in node.values
-            )
+            return all(self.is_literal(v) for v in node.values)
+        if isinstance(node, ast.FormattedValue):
+            return self.is_literal(node.value) and self.is_literal(node.format_spec)
         if isinstance(node, ast.Attribute):
             # dsl.PIPELINE_JOB_ID_PLACEHOLDER and similar placeholders
-            return isinstance(node.value, ast.Name) and node.value.id in self.kfp_names | {"dsl"} \
-                and not _is_dunder(node.attr)
+            return self.is_dsl_ref(node.value) and bool(_CONSTANT_NAME.fullmatch(node.attr))
         return False
 
     def check_constant(self, node: ast.stmt) -> None:
@@ -224,8 +310,9 @@ class _Validator:
         if node is None:
             return
         for sub in ast.walk(node):
-            if isinstance(sub, ast.Call):
-                self.error(sub, "type annotations may not call functions "
+            if not isinstance(sub, (ast.Name, ast.Attribute, ast.Subscript, ast.Tuple, ast.List,
+                                    ast.Constant, ast.BinOp, ast.BitOr, ast.Load)):
+                self.error(sub, "type annotations may only name types "
                                 "(use Output[...] artifacts instead of NamedTuple)")
                 return
             if isinstance(sub, ast.Name) and _is_dunder(sub.id) or \
@@ -234,20 +321,12 @@ class _Validator:
                 return
 
     def check_function(self, node: ast.FunctionDef) -> None:
-        kinds = [_decorator_kind(d) for d in node.decorator_list]
+        kinds = [self.decorator_kind(d) for d in node.decorator_list]
         if len(node.decorator_list) != 1 or kinds[0] is None:
-            self.error(node, f"function '{node.name}' must have exactly one decorator, "
+            self.error(node, f"function '{node.name}' must have exactly one decorator, kfp's "
                              "@dsl.component or @dsl.pipeline; put helpers inside the component")
             return
         decorator = node.decorator_list[0]
-        target = decorator.func if isinstance(decorator, ast.Call) else decorator
-        from_kfp = (
-            target.id in self.dsl_imports if isinstance(target, ast.Name)
-            else _attribute_root(target) in self.kfp_names
-        )
-        if not from_kfp:
-            self.error(node, f"the decorator on '{node.name}' must be kfp's dsl.component or dsl.pipeline")
-            return
         if isinstance(decorator, ast.Call):
             for arg in [*decorator.args, *(k.value for k in decorator.keywords)]:
                 if not self.is_literal(arg):
@@ -260,6 +339,8 @@ class _Validator:
                 self.error(default, f"default values of '{node.name}' must be literals or module-level constants")
         for arg in [*args.posonlyargs, *args.args, *args.kwonlyargs]:
             self.check_annotation(arg.annotation)
+        if args.vararg or args.kwarg:
+            self.error(node, f"'{node.name}' may not take *args or **kwargs")
         self.check_annotation(node.returns)
 
         if kinds[0] == "component":
@@ -271,47 +352,81 @@ class _Validator:
 
     def check_pipeline_body(self, pipeline: ast.FunctionDef) -> None:
         params = {a.arg for a in [*pipeline.args.posonlyargs, *pipeline.args.args, *pipeline.args.kwonlyargs]}
+        protected = self.module_names() | self.components | self.constants | _SAFE_BUILTINS
+        for name in sorted(params & protected):
+            self.error(pipeline, f"pipeline parameter '{name}' shadows a component, builtin, constant or import")
+        restricted = self.module_names() - params
         for stmt in pipeline.body:
+            parents = {child: parent for parent in ast.walk(stmt) for child in ast.iter_child_nodes(parent)}
             for node in ast.walk(stmt):
                 if isinstance(node, _FORBIDDEN_IN_PIPELINE):
                     self.error(node, f"{type(node).__name__} is not allowed in the pipeline function")
                 elif isinstance(node, ast.Name):
-                    if _is_dunder(node.id):
-                        self.error(node, "dunder names are not allowed")
-                    elif node.id in self.other_imports and node.id not in params:
-                        self.error(node, f"'{node.id}' cannot be used in the pipeline function; "
-                                         "only kfp/dsl names, components and parameters")
+                    if isinstance(node.ctx, (ast.Store, ast.Del)) and node.id in protected:
+                        self.error(node, f"'{node.id}' cannot be reassigned in the pipeline function")
+                    elif node.id in self.components and not (
+                        isinstance(parents.get(node), ast.Call) and parents[node].func is node
+                    ):
+                        self.error(node, f"component '{node.id}' may only be called in the pipeline function")
+                    else:
+                        self.check_pipeline_name(node, parents.get(node), restricted)
                 elif isinstance(node, ast.Attribute):
-                    if _is_dunder(node.attr):
-                        self.error(node, "dunder attributes are not allowed")
-                    elif node.attr == "set_display_name":
-                        self.error(node, "set_display_name() is not allowed: the cluster's KFP driver "
-                                         "crashes when a step's display name differs from its task name")
-                    elif _attribute_root(node) in self.kfp_names and not self.is_dsl_attribute(node):
-                        self.error(node, "only direct dsl.<name> attributes may be used in the pipeline function")
+                    self.check_pipeline_attribute(node, parents.get(node), restricted)
                 elif isinstance(node, ast.Call):
-                    self.check_pipeline_call(node)
+                    self.check_pipeline_call(node, restricted)
 
-    def is_dsl_attribute(self, node: ast.Attribute) -> bool:
-        value = node.value
-        if isinstance(value, ast.Name):
-            return value.id in self.kfp_names
-        # kfp.dsl.X
-        return isinstance(value, ast.Attribute) and value.attr == "dsl" and \
-            isinstance(value.value, ast.Name) and value.value.id in self.kfp_names
+    def check_pipeline_name(self, node: ast.Name, parent: Optional[ast.AST], restricted: set[str]) -> None:
+        if _is_dunder(node.id):
+            self.error(node, "dunder names are not allowed")
+            return
+        if node.id not in restricted:
+            return
+        # A module name may only appear as the base of an allowed dsl.X / kfp.dsl.X access.
+        if isinstance(parent, ast.Attribute) and parent.value is node and \
+                (node.id in self.dsl_modules or node.id in self.kfp_roots):
+            return
+        original = self.dsl_imports.get(node.id)
+        if original is not None and (
+            original in _DSL_CALLS and isinstance(parent, ast.Call) and parent.func is node
+            or _CONSTANT_NAME.fullmatch(original)
+        ):
+            return
+        self.error(node, f"'{node.id}' cannot be used here in the pipeline function; "
+                         "only components, parameters, dsl.<helper>(...) and dsl.<CONSTANT>")
 
-    def check_pipeline_call(self, node: ast.Call) -> None:
+    def check_pipeline_attribute(self, node: ast.Attribute, parent: Optional[ast.AST], restricted: set[str]) -> None:
+        if _is_dunder(node.attr):
+            self.error(node, "dunder attributes are not allowed")
+            return
+        if node.attr == "set_display_name":
+            self.error(node, "set_display_name() is not allowed: the cluster's KFP driver "
+                             "crashes when a step's display name differs from its task name")
+            return
+        if node.attr.startswith("_"):
+            self.error(node, "private attributes are not allowed in the pipeline function")
+            return
+        if _name_root(node) not in restricted:
+            return  # attributes of tasks, parameters and local values
+        if self.is_dsl_ref(node) and isinstance(parent, ast.Attribute) and parent.value is node:
+            return  # the `kfp.dsl` part of `kfp.dsl.X`
+        if self.is_dsl_ref(node.value) and (node.attr in _DSL_CALLS or _CONSTANT_NAME.fullmatch(node.attr)):
+            return
+        self.error(node, f"'{ast.unparse(node)}' cannot be used in the pipeline function; "
+                         "only dsl.<helper>(...) and dsl.<CONSTANT>")
+
+    def check_pipeline_call(self, node: ast.Call, restricted: set[str]) -> None:
         func = node.func
         if isinstance(func, ast.Name):
-            if func.id in self.components or func.id in _SAFE_BUILTINS or \
-                    (func.id in self.dsl_imports and func.id in _DSL_CALLS):
+            original = self.dsl_imports.get(func.id)
+            if func.id in self.components or (func.id in _SAFE_BUILTINS and func.id not in restricted) or \
+                    original in _DSL_CALLS:
                 return
             self.error(node, f"calling '{func.id}' is not allowed in the pipeline function; "
                              "only components defined in this file, dsl helpers and basic builtins")
             return
         if isinstance(func, ast.Attribute):
-            if _attribute_root(func) in self.kfp_names:
-                if self.is_dsl_attribute(func) and func.attr in _DSL_CALLS:
+            if _name_root(func) in restricted:
+                if self.is_dsl_ref(func.value) and func.attr in _DSL_CALLS:
                     return
                 self.error(node, f"calling '{ast.unparse(func)}' is not allowed in the pipeline function")
                 return
@@ -322,25 +437,21 @@ class _Validator:
         self.error(node, "only direct function and method calls are allowed in the pipeline function")
 
 
-def validate_pipeline_source(source: str) -> List[str]:
-    """Return a list of problems with a pipeline source file (empty when it is safe to compile)."""
+def _validate(source: str) -> Tuple[List[str], Optional[str]]:
     if len(source.encode("utf-8")) > MAX_SOURCE_BYTES:
-        return [f"source is larger than {MAX_SOURCE_BYTES // 1000} KB"]
+        return [f"source is larger than {MAX_SOURCE_BYTES // 1000} KB"], None
     try:
         tree = ast.parse(source)
     except SyntaxError as exc:
-        return [f"syntax error at line {exc.lineno}: {exc.msg}"]
-    return _Validator(tree).run()
+        return [f"syntax error at line {exc.lineno}: {exc.msg}"], None
+    validator = _Validator(tree)
+    errors = validator.run()
+    return errors, validator.pipelines[0].name if validator.pipelines else None
 
 
-def pipeline_function_name(source: str) -> Optional[str]:
-    """Name of the single @dsl.pipeline function, or None."""
-    for node in ast.parse(source).body:
-        if isinstance(node, ast.FunctionDef) and any(
-            _decorator_kind(d) == "pipeline" for d in node.decorator_list
-        ):
-            return node.name
-    return None
+def validate_pipeline_source(source: str) -> List[str]:
+    """Return a list of problems with a pipeline source file (empty when it is safe to compile)."""
+    return _validate(source)[0]
 
 
 def compile_pipeline_source(
@@ -351,10 +462,9 @@ def compile_pipeline_source(
     Returns:
         (yaml_text, None) on success, or (None, error message) otherwise.
     """
-    problems = validate_pipeline_source(source)
+    problems, func_name = _validate(source)
     if problems:
         return None, "Pipeline source rejected:\n- " + "\n- ".join(problems)
-    func_name = pipeline_function_name(source)
 
     with tempfile.TemporaryDirectory(prefix="swarm-pipeline-") as workdir:
         source_path = Path(workdir) / "pipeline_source.py"
@@ -366,6 +476,7 @@ def compile_pipeline_source(
                 [sys.executable, "-I", "-W", "ignore", "-c", _COMPILE_RUNNER, str(source_path), str(output_path), func_name],
                 cwd=workdir,
                 env=env,
+                preexec_fn=(lambda: _limit_compile_resources(timeout)) if resource else None,
                 capture_output=True,
                 text=True,
                 timeout=timeout,
@@ -375,6 +486,15 @@ def compile_pipeline_source(
         if result.returncode != 0 or not output_path.is_file():
             return None, "Compilation failed:\n" + _trim_traceback(result.stderr)
         return output_path.read_text(encoding="utf-8"), None
+
+
+def _limit_compile_resources(timeout: int) -> None:
+    """Cap CPU time and memory of the compile subprocess (runs in the child before exec)."""
+    for limit, value in ((resource.RLIMIT_CPU, timeout + 5), (resource.RLIMIT_AS, COMPILE_MEMORY_BYTES)):
+        try:
+            resource.setrlimit(limit, (value, value))
+        except (ValueError, OSError):
+            pass  # macOS does not enforce RLIMIT_AS; the wall-clock timeout still applies
 
 
 def _trim_traceback(stderr: str, max_lines: int = 15) -> str:
