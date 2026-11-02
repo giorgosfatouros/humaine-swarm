@@ -17,6 +17,11 @@ Steps:
     publish_results  upload everything to MinIO under
                      kubeflow/smart-cities-auto-correction-classifier/<run_id>/
 
+The models are published twice: as joblib files and as plain-JSON "portable" models
+(models/<model_type>.json), which the assistant's predict_auto_correction tool uses to
+score new entries in the chat. The feature code in build_features must stay identical
+to utils/auto_correction_model.py (tests/test_auto_correction_inference.py checks this).
+
 The MinIO credential parameters are filled automatically when the pipeline is
 launched from the HumAIne Swarm Assistant (the user's own STS session keys).
 
@@ -162,8 +167,16 @@ def train_model(
     rf_max_depth: int,
     random_state: int,
     model: Output[Model],
+    portable_model: Output[Dataset],
 ):
-    """Train a logistic regression or a random forest on the training features."""
+    """Train a logistic regression or a random forest on the training features.
+
+    `model` is the scikit-learn object (joblib). `portable_model` is the same model as
+    plain JSON numbers (scaler and coefficients, or every tree's split arrays), which the
+    assistant's predict_auto_correction tool evaluates without unpickling anything.
+    """
+    import json
+
     import joblib
     import pandas as pd
     from sklearn.ensemble import RandomForestClassifier
@@ -189,6 +202,32 @@ def train_model(
     joblib.dump({"model": clf, "model_type": model_type, "feature_names": feature_names},
                 model.path)
     model.metadata.update({"model_type": model_type, "train_rows": len(df), **params})
+
+    portable = {
+        "format": "humaine-portable-classifier/1",
+        "model_type": model_type,
+        "model_name": {"logistic_regression": "Logistic Regression",
+                       "random_forest": "Random Forest"}[model_type],
+        "feature_names": feature_names,
+        "classes": ["needs operator", "auto-correctable"],
+        "threshold": 0.5,
+    }
+    if model_type == "logistic_regression":
+        scaler, lr = clf[0], clf[-1]
+        portable.update({"scaler_mean": scaler.mean_.tolist(), "scaler_scale": scaler.scale_.tolist(),
+                         "coef": lr.coef_[0].tolist(), "intercept": float(lr.intercept_[0])})
+    else:
+        # Leaf probability of the positive class; scikit-learn averages these over the trees
+        portable["trees"] = [{
+            "left": t.children_left.tolist(),
+            "right": t.children_right.tolist(),
+            "feature": t.feature.tolist(),
+            "threshold": t.threshold.tolist(),
+            "p": (t.value[:, 0, 1] / t.value[:, 0, :].sum(axis=1)).tolist(),
+        } for t in (est.tree_ for est in clf.estimators_)]
+    with open(portable_model.path, "w", encoding="utf-8") as fh:
+        json.dump(portable, fh)
+
     print(f"Trained {model_type} on {len(df)} rows, train accuracy {clf.score(X, y):.4f}")
 
 
@@ -366,6 +405,8 @@ def publish_results(
     random_state: int,
     lr_model: Input[Model],
     rf_model: Input[Model],
+    lr_portable_model: Input[Dataset],
+    rf_portable_model: Input[Dataset],
     lr_metrics: Input[Dataset],
     rf_metrics: Input[Dataset],
     lr_report: Input[HTML],
@@ -396,6 +437,8 @@ def publish_results(
     uploads = [
         (lr_model.path, f"{base}/models/logistic_regression.joblib", "application/octet-stream"),
         (rf_model.path, f"{base}/models/random_forest.joblib", "application/octet-stream"),
+        (lr_portable_model.path, f"{base}/models/logistic_regression.json", "application/json"),
+        (rf_portable_model.path, f"{base}/models/random_forest.json", "application/json"),
         (lr_metrics.path, f"{base}/metrics/logistic_regression_metrics.json", "application/json"),
         (rf_metrics.path, f"{base}/metrics/random_forest_metrics.json", "application/json"),
         (lr_report.path, f"{base}/reports/logistic_regression_report.html", "text/html"),
@@ -503,6 +546,8 @@ def auto_correction_pipeline(
         random_state=random_state,
         lr_model=trained["logistic_regression"].outputs["model"],
         rf_model=trained["random_forest"].outputs["model"],
+        lr_portable_model=trained["logistic_regression"].outputs["portable_model"],
+        rf_portable_model=trained["random_forest"].outputs["portable_model"],
         lr_metrics=evaluated["logistic_regression"].outputs["metrics_json"],
         rf_metrics=evaluated["random_forest"].outputs["metrics_json"],
         lr_report=evaluated["logistic_regression"].outputs["report"],

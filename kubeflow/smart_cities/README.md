@@ -28,6 +28,7 @@ Outputs, written per run to `s3://smart-cities-data/kubeflow/smart-cities-auto-c
 ```
 metrics/<model>_metrics.json                 accuracy, precision, recall, F1, AUC, confusion matrix, named outcomes, per-field accuracy
 models/<model>.joblib                        {"model", "model_type", "feature_names"}
+models/<model>.json                          the same model as plain JSON numbers, used by the assistant for predictions
 plots/<model>_confusion_matrix.html          small text tables, read by the assistant
 plots/<model>_roc_curve.html
 plots/<model>_feature_importance.html
@@ -39,6 +40,8 @@ metadata/run_parameters.json                 hyperparameters and data paths, rea
 The confusion matrix has rows = actual class and columns = predicted class. Because a reader (the assistant included) can easily swap the two, the metrics JSON also has `outcomes` with named counts (for example `needs_operator_wrongly_auto_corrected`, the costly error), and the confusion-matrix page spells out both error counts in a sentence.
 
 `<model>` is `logistic_regression` or `random_forest`, and `<run_id>` is the Kubeflow run ID. This is the layout the assistant's `get_model_metrics`, `get_pipeline_visualization` and `compare_pipeline_runs` tools read. The `plots/` pages stay text-only on purpose, because `get_pipeline_visualization` passes their HTML to the LLM.
+
+`models/<model>.json` lets the assistant's `predict_auto_correction` tool score new entries in the chat without loading a pickle: logistic regression is stored as scaler and coefficients, random forest as each tree's split arrays. The tool recomputes the features with `utils/auto_correction_model.py`, so a change to `build_features` must be made there too (a test compares the two). Runs made before this export have only `.joblib` files and cannot be used for predictions; run the latest version.
 
 ## Credentials
 
@@ -62,3 +65,4 @@ Turn on the Smart Cities and Kubeflow packs, then ask:
 3. "What's the status of that run?" (repeat until it has succeeded, about 3–5 minutes, mostly pip installs)
 4. "How did the models do?" or "Compare the two models."
 5. "Show me the random forest confusion matrix" or "Which features matter most to the random forest?"
+6. "Would the model auto-correct surname ΠΑΠΑΔΟΠΟΥΛΟΣ when the record says ΠΑΠΑΔΟΠΟΥΛΟΥ? And name ΓΙΩΡΓΟΣ versus ΓΕΩΡΓΙΟΣ?" (scored by the trained models with `predict_auto_correction`)

@@ -149,6 +149,10 @@ components:
           artifactType:
             schemaTitle: system.Artifact
             schemaVersion: 0.0.1
+        lr_portable_model:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
         lr_report:
           artifactType:
             schemaTitle: system.HTML
@@ -164,6 +168,10 @@ components:
         rf_plots:
           artifactType:
             schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+        rf_portable_model:
+          artifactType:
+            schemaTitle: system.Dataset
             schemaVersion: 0.0.1
         rf_report:
           artifactType:
@@ -229,6 +237,10 @@ components:
           artifactType:
             schemaTitle: system.Model
             schemaVersion: 0.0.1
+        portable_model:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
   comp-train-model-2:
     executorLabel: exec-train-model-2
     inputDefinitions:
@@ -253,6 +265,10 @@ components:
         model:
           artifactType:
             schemaTitle: system.Model
+            schemaVersion: 0.0.1
+        portable_model:
+          artifactType:
+            schemaTitle: system.Dataset
             schemaVersion: 0.0.1
 deploymentSpec:
   executors:
@@ -671,20 +687,23 @@ deploymentSpec:
           \ str,\n    pipeline_name: str,\n    run_id: str,\n    data_bucket: str,\n\
           \    train_object: str,\n    test_object: str,\n    lr_c: float,\n    rf_n_estimators:\
           \ int,\n    rf_max_depth: int,\n    random_state: int,\n    lr_model: Input[Model],\n\
-          \    rf_model: Input[Model],\n    lr_metrics: Input[Dataset],\n    rf_metrics:\
-          \ Input[Dataset],\n    lr_report: Input[HTML],\n    rf_report: Input[HTML],\n\
-          \    lr_plots: Input[Artifact],\n    rf_plots: Input[Artifact],\n    summary:\
-          \ Output[Metrics],\n):\n    \"\"\"Upload models, metrics and reports to\
-          \ MinIO and pick the best model by F1.\"\"\"\n    import datetime\n    import\
-          \ io\n    import json\n    import os\n\n    from minio import Minio\n\n\
-          \    secure = not minio_endpoint.startswith(\"http://\")\n    endpoint =\
-          \ minio_endpoint.split(\"://\", 1)[-1].rstrip(\"/\")\n    client = Minio(\n\
-          \        endpoint,\n        access_key=minio_access_key,\n        secret_key=minio_secret_key,\n\
-          \        session_token=minio_session_token or None,\n        secure=secure,\n\
-          \    )\n    base = f\"kubeflow/{pipeline_name}/{run_id}\"\n\n    uploads\
-          \ = [\n        (lr_model.path, f\"{base}/models/logistic_regression.joblib\"\
+          \    rf_model: Input[Model],\n    lr_portable_model: Input[Dataset],\n \
+          \   rf_portable_model: Input[Dataset],\n    lr_metrics: Input[Dataset],\n\
+          \    rf_metrics: Input[Dataset],\n    lr_report: Input[HTML],\n    rf_report:\
+          \ Input[HTML],\n    lr_plots: Input[Artifact],\n    rf_plots: Input[Artifact],\n\
+          \    summary: Output[Metrics],\n):\n    \"\"\"Upload models, metrics and\
+          \ reports to MinIO and pick the best model by F1.\"\"\"\n    import datetime\n\
+          \    import io\n    import json\n    import os\n\n    from minio import\
+          \ Minio\n\n    secure = not minio_endpoint.startswith(\"http://\")\n   \
+          \ endpoint = minio_endpoint.split(\"://\", 1)[-1].rstrip(\"/\")\n    client\
+          \ = Minio(\n        endpoint,\n        access_key=minio_access_key,\n  \
+          \      secret_key=minio_secret_key,\n        session_token=minio_session_token\
+          \ or None,\n        secure=secure,\n    )\n    base = f\"kubeflow/{pipeline_name}/{run_id}\"\
+          \n\n    uploads = [\n        (lr_model.path, f\"{base}/models/logistic_regression.joblib\"\
           , \"application/octet-stream\"),\n        (rf_model.path, f\"{base}/models/random_forest.joblib\"\
-          , \"application/octet-stream\"),\n        (lr_metrics.path, f\"{base}/metrics/logistic_regression_metrics.json\"\
+          , \"application/octet-stream\"),\n        (lr_portable_model.path, f\"{base}/models/logistic_regression.json\"\
+          , \"application/json\"),\n        (rf_portable_model.path, f\"{base}/models/random_forest.json\"\
+          , \"application/json\"),\n        (lr_metrics.path, f\"{base}/metrics/logistic_regression_metrics.json\"\
           , \"application/json\"),\n        (rf_metrics.path, f\"{base}/metrics/random_forest_metrics.json\"\
           , \"application/json\"),\n        (lr_report.path, f\"{base}/reports/logistic_regression_report.html\"\
           , \"text/html\"),\n        (rf_report.path, f\"{base}/reports/random_forest_report.html\"\
@@ -754,25 +773,47 @@ deploymentSpec:
         - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
           \ *\n\ndef train_model(\n    train_features: Input[Dataset],\n    model_type:\
           \ str,\n    lr_c: float,\n    rf_n_estimators: int,\n    rf_max_depth: int,\n\
-          \    random_state: int,\n    model: Output[Model],\n):\n    \"\"\"Train\
-          \ a logistic regression or a random forest on the training features.\"\"\
-          \"\n    import joblib\n    import pandas as pd\n    from sklearn.ensemble\
-          \ import RandomForestClassifier\n    from sklearn.linear_model import LogisticRegression\n\
-          \    from sklearn.pipeline import make_pipeline\n    from sklearn.preprocessing\
-          \ import StandardScaler\n\n    df = pd.read_csv(train_features.path)\n \
-          \   feature_names = [c for c in df.columns if c not in (\"field_type\",\
-          \ \"label\")]\n    X, y = df[feature_names], df[\"label\"]\n\n    if model_type\
-          \ == \"logistic_regression\":\n        clf = make_pipeline(StandardScaler(),\
-          \ LogisticRegression(C=lr_c, max_iter=1000))\n        params = {\"C\": lr_c}\n\
-          \    elif model_type == \"random_forest\":\n        clf = RandomForestClassifier(n_estimators=rf_n_estimators,\
-          \ max_depth=rf_max_depth,\n                                     random_state=random_state)\n\
-          \        params = {\"n_estimators\": rf_n_estimators, \"max_depth\": rf_max_depth}\n\
+          \    random_state: int,\n    model: Output[Model],\n    portable_model:\
+          \ Output[Dataset],\n):\n    \"\"\"Train a logistic regression or a random\
+          \ forest on the training features.\n\n    `model` is the scikit-learn object\
+          \ (joblib). `portable_model` is the same model as\n    plain JSON numbers\
+          \ (scaler and coefficients, or every tree's split arrays), which the\n \
+          \   assistant's predict_auto_correction tool evaluates without unpickling\
+          \ anything.\n    \"\"\"\n    import json\n\n    import joblib\n    import\
+          \ pandas as pd\n    from sklearn.ensemble import RandomForestClassifier\n\
+          \    from sklearn.linear_model import LogisticRegression\n    from sklearn.pipeline\
+          \ import make_pipeline\n    from sklearn.preprocessing import StandardScaler\n\
+          \n    df = pd.read_csv(train_features.path)\n    feature_names = [c for\
+          \ c in df.columns if c not in (\"field_type\", \"label\")]\n    X, y = df[feature_names],\
+          \ df[\"label\"]\n\n    if model_type == \"logistic_regression\":\n     \
+          \   clf = make_pipeline(StandardScaler(), LogisticRegression(C=lr_c, max_iter=1000))\n\
+          \        params = {\"C\": lr_c}\n    elif model_type == \"random_forest\"\
+          :\n        clf = RandomForestClassifier(n_estimators=rf_n_estimators, max_depth=rf_max_depth,\n\
+          \                                     random_state=random_state)\n     \
+          \   params = {\"n_estimators\": rf_n_estimators, \"max_depth\": rf_max_depth}\n\
           \    else:\n        raise ValueError(f\"Unknown model_type: {model_type}\"\
           )\n\n    clf.fit(X, y)\n    joblib.dump({\"model\": clf, \"model_type\"\
           : model_type, \"feature_names\": feature_names},\n                model.path)\n\
           \    model.metadata.update({\"model_type\": model_type, \"train_rows\":\
-          \ len(df), **params})\n    print(f\"Trained {model_type} on {len(df)} rows,\
-          \ train accuracy {clf.score(X, y):.4f}\")\n\n"
+          \ len(df), **params})\n\n    portable = {\n        \"format\": \"humaine-portable-classifier/1\"\
+          ,\n        \"model_type\": model_type,\n        \"model_name\": {\"logistic_regression\"\
+          : \"Logistic Regression\",\n                       \"random_forest\": \"\
+          Random Forest\"}[model_type],\n        \"feature_names\": feature_names,\n\
+          \        \"classes\": [\"needs operator\", \"auto-correctable\"],\n    \
+          \    \"threshold\": 0.5,\n    }\n    if model_type == \"logistic_regression\"\
+          :\n        scaler, lr = clf[0], clf[-1]\n        portable.update({\"scaler_mean\"\
+          : scaler.mean_.tolist(), \"scaler_scale\": scaler.scale_.tolist(),\n   \
+          \                      \"coef\": lr.coef_[0].tolist(), \"intercept\": float(lr.intercept_[0])})\n\
+          \    else:\n        # Leaf probability of the positive class; scikit-learn\
+          \ averages these over the trees\n        portable[\"trees\"] = [{\n    \
+          \        \"left\": t.children_left.tolist(),\n            \"right\": t.children_right.tolist(),\n\
+          \            \"feature\": t.feature.tolist(),\n            \"threshold\"\
+          : t.threshold.tolist(),\n            \"p\": (t.value[:, 0, 1] / t.value[:,\
+          \ 0, :].sum(axis=1)).tolist(),\n        } for t in (est.tree_ for est in\
+          \ clf.estimators_)]\n    with open(portable_model.path, \"w\", encoding=\"\
+          utf-8\") as fh:\n        json.dump(portable, fh)\n\n    print(f\"Trained\
+          \ {model_type} on {len(df)} rows, train accuracy {clf.score(X, y):.4f}\"\
+          )\n\n"
         image: python:3.11-slim
     exec-train-model-2:
       container:
@@ -803,25 +844,47 @@ deploymentSpec:
         - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
           \ *\n\ndef train_model(\n    train_features: Input[Dataset],\n    model_type:\
           \ str,\n    lr_c: float,\n    rf_n_estimators: int,\n    rf_max_depth: int,\n\
-          \    random_state: int,\n    model: Output[Model],\n):\n    \"\"\"Train\
-          \ a logistic regression or a random forest on the training features.\"\"\
-          \"\n    import joblib\n    import pandas as pd\n    from sklearn.ensemble\
-          \ import RandomForestClassifier\n    from sklearn.linear_model import LogisticRegression\n\
-          \    from sklearn.pipeline import make_pipeline\n    from sklearn.preprocessing\
-          \ import StandardScaler\n\n    df = pd.read_csv(train_features.path)\n \
-          \   feature_names = [c for c in df.columns if c not in (\"field_type\",\
-          \ \"label\")]\n    X, y = df[feature_names], df[\"label\"]\n\n    if model_type\
-          \ == \"logistic_regression\":\n        clf = make_pipeline(StandardScaler(),\
-          \ LogisticRegression(C=lr_c, max_iter=1000))\n        params = {\"C\": lr_c}\n\
-          \    elif model_type == \"random_forest\":\n        clf = RandomForestClassifier(n_estimators=rf_n_estimators,\
-          \ max_depth=rf_max_depth,\n                                     random_state=random_state)\n\
-          \        params = {\"n_estimators\": rf_n_estimators, \"max_depth\": rf_max_depth}\n\
+          \    random_state: int,\n    model: Output[Model],\n    portable_model:\
+          \ Output[Dataset],\n):\n    \"\"\"Train a logistic regression or a random\
+          \ forest on the training features.\n\n    `model` is the scikit-learn object\
+          \ (joblib). `portable_model` is the same model as\n    plain JSON numbers\
+          \ (scaler and coefficients, or every tree's split arrays), which the\n \
+          \   assistant's predict_auto_correction tool evaluates without unpickling\
+          \ anything.\n    \"\"\"\n    import json\n\n    import joblib\n    import\
+          \ pandas as pd\n    from sklearn.ensemble import RandomForestClassifier\n\
+          \    from sklearn.linear_model import LogisticRegression\n    from sklearn.pipeline\
+          \ import make_pipeline\n    from sklearn.preprocessing import StandardScaler\n\
+          \n    df = pd.read_csv(train_features.path)\n    feature_names = [c for\
+          \ c in df.columns if c not in (\"field_type\", \"label\")]\n    X, y = df[feature_names],\
+          \ df[\"label\"]\n\n    if model_type == \"logistic_regression\":\n     \
+          \   clf = make_pipeline(StandardScaler(), LogisticRegression(C=lr_c, max_iter=1000))\n\
+          \        params = {\"C\": lr_c}\n    elif model_type == \"random_forest\"\
+          :\n        clf = RandomForestClassifier(n_estimators=rf_n_estimators, max_depth=rf_max_depth,\n\
+          \                                     random_state=random_state)\n     \
+          \   params = {\"n_estimators\": rf_n_estimators, \"max_depth\": rf_max_depth}\n\
           \    else:\n        raise ValueError(f\"Unknown model_type: {model_type}\"\
           )\n\n    clf.fit(X, y)\n    joblib.dump({\"model\": clf, \"model_type\"\
           : model_type, \"feature_names\": feature_names},\n                model.path)\n\
           \    model.metadata.update({\"model_type\": model_type, \"train_rows\":\
-          \ len(df), **params})\n    print(f\"Trained {model_type} on {len(df)} rows,\
-          \ train accuracy {clf.score(X, y):.4f}\")\n\n"
+          \ len(df), **params})\n\n    portable = {\n        \"format\": \"humaine-portable-classifier/1\"\
+          ,\n        \"model_type\": model_type,\n        \"model_name\": {\"logistic_regression\"\
+          : \"Logistic Regression\",\n                       \"random_forest\": \"\
+          Random Forest\"}[model_type],\n        \"feature_names\": feature_names,\n\
+          \        \"classes\": [\"needs operator\", \"auto-correctable\"],\n    \
+          \    \"threshold\": 0.5,\n    }\n    if model_type == \"logistic_regression\"\
+          :\n        scaler, lr = clf[0], clf[-1]\n        portable.update({\"scaler_mean\"\
+          : scaler.mean_.tolist(), \"scaler_scale\": scaler.scale_.tolist(),\n   \
+          \                      \"coef\": lr.coef_[0].tolist(), \"intercept\": float(lr.intercept_[0])})\n\
+          \    else:\n        # Leaf probability of the positive class; scikit-learn\
+          \ averages these over the trees\n        portable[\"trees\"] = [{\n    \
+          \        \"left\": t.children_left.tolist(),\n            \"right\": t.children_right.tolist(),\n\
+          \            \"feature\": t.feature.tolist(),\n            \"threshold\"\
+          : t.threshold.tolist(),\n            \"p\": (t.value[:, 0, 1] / t.value[:,\
+          \ 0, :].sum(axis=1)).tolist(),\n        } for t in (est.tree_ for est in\
+          \ clf.estimators_)]\n    with open(portable_model.path, \"w\", encoding=\"\
+          utf-8\") as fh:\n        json.dump(portable, fh)\n\n    print(f\"Trained\
+          \ {model_type} on {len(df)} rows, train accuracy {clf.score(X, y):.4f}\"\
+          )\n\n"
         image: python:3.11-slim
 pipelineInfo:
   description: 'Smart Cities - Auto-Correction Eligibility Classifier: decides whether
@@ -937,6 +1000,10 @@ root:
               taskOutputArtifact:
                 outputArtifactKey: plots
                 producerTask: evaluate-model
+            lr_portable_model:
+              taskOutputArtifact:
+                outputArtifactKey: portable_model
+                producerTask: train-model
             lr_report:
               taskOutputArtifact:
                 outputArtifactKey: report
@@ -953,6 +1020,10 @@ root:
               taskOutputArtifact:
                 outputArtifactKey: plots
                 producerTask: evaluate-model-2
+            rf_portable_model:
+              taskOutputArtifact:
+                outputArtifactKey: portable_model
+                producerTask: train-model-2
             rf_report:
               taskOutputArtifact:
                 outputArtifactKey: report

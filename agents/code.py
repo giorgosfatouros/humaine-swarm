@@ -27,6 +27,13 @@ from utils.pipeline_builder import (
     pipeline_root_parameters,
 )
 from classes.user_handler import UserSessionManager
+from utils.auto_correction_model import (
+    FIELD_TYPES as AUTO_CORRECTION_FIELD_TYPES,
+    MAX_VALUE_LENGTH,
+    featurize,
+    predict_probability,
+    validate_portable_model,
+)
 from utils.haic_pilot_map import resolve_haic_pilot_context
 from utils.haic_client import query_haic_benchmark as haic_query
 from utils.semantic_inference_client import query_manufacturing_knowledge as manufacturing_query
@@ -1253,6 +1260,145 @@ def _merge_pipeline_listings(
             })
 
     return merged
+
+
+AUTO_CORRECTION_PIPELINE = "smart-cities-auto-correction-classifier"
+AUTO_CORRECTION_BUCKET = "smart-cities-data"
+MAX_PREDICTION_ENTRIES = 50
+
+
+def _portable_model_objects(
+    client: Minio, bucket_name: str, pipeline_name: str, run_folder: Optional[str] = None
+) -> tuple[Optional[str], List[str]]:
+    """Return (run folder, models/*.json object names) for a run, or for the newest run that has them."""
+    base = f"kubeflow/{pipeline_name}/"
+    prefix = f"{base}{run_folder}/models/" if run_folder else base
+    by_run: Dict[str, List[Any]] = {}
+    for obj in client.list_objects(bucket_name, prefix=prefix, recursive=True):
+        parts = obj.object_name[len(base):].split("/")
+        if len(parts) == 3 and parts[1] == "models" and parts[2].endswith(".json"):
+            by_run.setdefault(parts[0], []).append(obj)
+    if not by_run:
+        return run_folder, []
+    run = run_folder or max(by_run, key=lambda r: max(o.last_modified for o in by_run[r]))
+    return run, sorted(o.object_name for o in by_run.get(run, []))
+
+
+@cl.step(type="tool", name="Auto-Correction Prediction", show_input=False)
+async def predict_auto_correction(
+    entries: Optional[List[Dict[str, Any]]] = None,
+    run_name: Optional[str] = None,
+    model_name: Optional[str] = None,
+    bucket_name: str = AUTO_CORRECTION_BUCKET,
+    pipeline_name: str = AUTO_CORRECTION_PIPELINE,
+) -> Dict:
+    """
+    Score new entries with the trained Smart Cities auto-correction classifier.
+
+    Loads the plain-JSON models a pipeline run published (models/<model_type>.json) with
+    the user's own MinIO credentials and evaluates them here; no pickle is ever loaded.
+
+    Args:
+        entries: Up to 50 dicts with field_type, supplied_value (the citizen's entry) and
+            correct_value (the value on record)
+        run_name: Kubeflow run_id whose models to use; the newest run with models if omitted
+        model_name: Optional model filter ("random_forest", "Logistic Regression", ...)
+        bucket_name: MinIO bucket holding the pipeline results
+        pipeline_name: Pipeline folder under kubeflow/ in the bucket
+
+    Returns:
+        Dict with per-entry probabilities and decisions for each model, or an error
+    """
+    try:
+        if not entries or not isinstance(entries, list):
+            return {"error": "entries must be a non-empty list of {field_type, supplied_value, correct_value}."}
+        if len(entries) > MAX_PREDICTION_ENTRIES:
+            return {"error": f"At most {MAX_PREDICTION_ENTRIES} entries per call; got {len(entries)}."}
+        rows = []
+        for i, entry in enumerate(entries, 1):
+            if not isinstance(entry, dict):
+                return {"error": f"Entry {i} must be an object with field_type, supplied_value and correct_value."}
+            field_type = str(entry.get("field_type", "")).strip().lower()
+            if field_type not in AUTO_CORRECTION_FIELD_TYPES:
+                return {"error": f"Entry {i}: field_type must be one of {', '.join(AUTO_CORRECTION_FIELD_TYPES)}."}
+            supplied, correct = entry.get("supplied_value"), entry.get("correct_value")
+            if supplied is None or correct is None:
+                return {"error": f"Entry {i} needs both supplied_value and correct_value."}
+            if max(len(str(supplied)), len(str(correct))) > MAX_VALUE_LENGTH:
+                return {"error": f"Entry {i}: values are limited to {MAX_VALUE_LENGTH} characters."}
+            rows.append({"field_type": field_type, "supplied_value": str(supplied), "correct_value": str(correct)})
+
+        client = await get_user_minio_client()
+        if not client.bucket_exists(bucket_name):
+            return {"error": f"Bucket '{bucket_name}' does not exist or is not accessible with your credentials."}
+
+        run_folder = None
+        if run_name:
+            run_folder, run_error = await _resolve_run_folder(client, bucket_name, pipeline_name, run_name)
+            if run_error:
+                return {"error": run_error}
+        run_folder, model_objects = _portable_model_objects(client, bucket_name, pipeline_name, run_folder)
+        if not model_objects:
+            if run_folder:
+                return {"error": (
+                    f"Run '{run_folder}' has no portable models (models/*.json). It was made by an older "
+                    f"pipeline version that only saved scikit-learn pickle files, which the assistant does "
+                    f"not load. Run the latest version of '{pipeline_name}' and predict with that run."
+                )}
+            return {"error": (
+                f"No run of '{pipeline_name}' in bucket '{bucket_name}' has portable models yet. "
+                f"Run the latest pipeline version first."
+            )}
+
+        models, skipped = [], []
+        for object_name in model_objects:
+            try:
+                model = validate_portable_model(_read_json_object(client, bucket_name, object_name))
+            except ValueError as e:
+                skipped.append({"path": object_name, "reason": str(e)})
+                continue
+            if model_name and _model_key(model_name) not in {
+                _model_key(model.get("model_name", "")), _model_key(model["model_type"])
+            }:
+                continue
+            models.append(model)
+        if not models:
+            return {"error": f"No usable model matched in run '{run_folder}'.", "skipped_models": skipped}
+
+        predictions = []
+        for row in rows:
+            features = featurize(row["field_type"], row["supplied_value"], row["correct_value"])
+            results = {}
+            for model in models:
+                probability = predict_probability(model, features)
+                # Strictly above the threshold, matching scikit-learn's predict()
+                decision = "auto-correctable" if probability > model.get("threshold", 0.5) else "needs operator"
+                results[model.get("model_name") or model["model_type"]] = {
+                    "probability_auto_correctable": round(probability, 4),
+                    "decision": decision,
+                }
+            predictions.append({
+                **row,
+                "features": {k: v for k, v in features.items() if not k.startswith("field_")},
+                "predictions": results,
+                "models_agree": len({r["decision"] for r in results.values()}) == 1,
+            })
+
+        result = {
+            "bucket_name": bucket_name,
+            "pipeline_name": pipeline_name,
+            "run_name": run_folder,
+            "models": list(predictions[0]["predictions"]),
+            "positive_class": "auto-correctable",
+            "predictions": predictions,
+            "note": "Computed by the trained models from this run, not estimated by the assistant.",
+        }
+        if skipped:
+            result["skipped_models"] = skipped
+        return result
+    except Exception as e:
+        logger.error(f"Error predicting auto-correction eligibility: {str(e)}")
+        return {"error": str(e)}
 
 
 # Kubeflow
@@ -3893,6 +4039,7 @@ function_map = {
     "plot_data": plot_data,
     "analyze_smart_cities_data": analyze_smart_cities_data,
     "compare_smart_cities_files": compare_smart_cities_files,
+    "predict_auto_correction": predict_auto_correction,
     "query_haic_benchmark": query_haic_benchmark,
     "query_manufacturing_knowledge": query_manufacturing_knowledge,
 }

@@ -844,5 +844,51 @@ functions = [
                 "additionalProperties": False
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "predict_auto_correction",
+            "description": "Score new entries with the trained Smart Cities auto-correction classifier (logistic regression and random forest from the 'smart-cities-auto-correction-classifier' pipeline). For each entry it returns each model's probability that the mistake is obvious (auto-correctable) and its decision ('auto-correctable' or 'needs operator'). Use it whenever the user asks what the model predicts or decides for an entry, and report its numbers; never estimate predictions yourself. Only available to Smart Cities pilot users.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "entries": {
+                        "type": "array",
+                        "description": "Entries to score, at most 50.",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "field_type": {
+                                    "type": "string",
+                                    "enum": ["name", "surname", "father_name", "address", "vat_number", "id_number", "power_supply", "licence_plate", "mobile_phone"],
+                                    "description": "Which application field the entry is for."
+                                },
+                                "supplied_value": {
+                                    "type": "string",
+                                    "description": "What the citizen typed."
+                                },
+                                "correct_value": {
+                                    "type": "string",
+                                    "description": "The correct value on record."
+                                }
+                            },
+                            "required": ["field_type", "supplied_value", "correct_value"],
+                            "additionalProperties": False
+                        }
+                    },
+                    "run_name": {
+                        "type": "string",
+                        "description": "Kubeflow run_id whose trained models to use. Omit it to use the newest run that published models."
+                    },
+                    "model_name": {
+                        "type": "string",
+                        "description": "Optional: only this model ('logistic_regression' or 'random_forest'). Omit it to get both."
+                    }
+                },
+                "required": ["entries"],
+                "additionalProperties": False
+            }
+        }
     }
 ]
