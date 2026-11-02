@@ -197,3 +197,7 @@ data/
 
 # Local evaluation runs and pilot snapshots (not published)
 evaluation/
+
+.files-for-rag/
+.files/
+kubeflow/
