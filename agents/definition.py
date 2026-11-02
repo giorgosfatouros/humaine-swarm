@@ -879,7 +879,7 @@ functions = [
                     },
                     "run_name": {
                         "type": "string",
-                        "description": "Kubeflow run_id whose trained models to use. Omit it to use the newest run that published models."
+                        "description": "Kubeflow run_id whose trained models to use. Omit it to use your newest succeeded Kubeflow run that published models."
                     },
                     "model_name": {
                         "type": "string",

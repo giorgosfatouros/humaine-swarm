@@ -7,7 +7,6 @@ import json
 import os
 import sys
 import tempfile
-from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -18,6 +17,9 @@ import pytest
 from agents.code import predict_auto_correction
 from utils.auto_correction_model import (
     FEATURE_NAMES,
+    MAX_MODEL_BYTES,
+    MAX_TREE_DEPTH,
+    MAX_TREES,
     featurize,
     predict_probability,
     validate_portable_model,
@@ -116,6 +118,23 @@ def _tampered(change):
     return model
 
 
+def _deep_tree(depth):
+    """A chain of splits `depth` levels deep: node 2k splits into leaf 2k+1 and node 2k+2."""
+    size = 2 * depth + 1
+    left = [i + 1 if i % 2 == 0 and i < size - 1 else -1 for i in range(size)]
+    right = [i + 2 if i % 2 == 0 and i < size - 1 else -1 for i in range(size)]
+    feature = [LEVENSHTEIN if r != -1 else -2 for r in right]
+    model = _rf_model()
+    model["trees"] = [{"left": left, "right": right, "feature": feature,
+                       "threshold": [0.5] * size, "p": [0.5] * size}]
+    return model
+
+
+def test_depth_limit_accepts_the_deepest_allowed_tree():
+    model = validate_portable_model(_deep_tree(MAX_TREE_DEPTH))
+    assert predict_probability(model, featurize("surname", "SMITH", "SMITH")) == 0.5
+
+
 @pytest.mark.parametrize("model", [
     None,
     {"format": "pickle"},
@@ -127,6 +146,8 @@ def _tampered(change):
     _tampered(lambda m: m.update(trees=[])),
     {**_lr_model(), "scaler_scale": [0.0] * len(FEATURE_NAMES)},
     {**_lr_model(), "intercept": float("inf")},
+    _deep_tree(MAX_TREE_DEPTH + 1),
+    _tampered(lambda m: m.update(trees=m["trees"] * (MAX_TREES + 1))),
 ])
 def test_validate_rejects_malformed_models(model):
     with pytest.raises(ValueError):
@@ -134,18 +155,22 @@ def test_validate_rejects_malformed_models(model):
 
 
 NEW_RUN, OLD_RUN, LEGACY_RUN = "run-new", "run-old", "run-legacy"
-NOW = datetime(2026, 11, 2, tzinfo=timezone.utc)
+FAILED_RUN, PLANTED_RUN = "run-failed", "run-planted"
+# Kubeflow's runs in the user's namespace, newest first. PLANTED_RUN is only a MinIO folder.
+KUBEFLOW_RUNS = [(FAILED_RUN, "FAILED"), (NEW_RUN, "SUCCEEDED"), (OLD_RUN, "SUCCEEDED"), (LEGACY_RUN, "SUCCEEDED")]
 
 
 def _objects(rf=None):
     def at(run, name):
         return f"kubeflow/{PIPELINE}/{run}/models/{name}"
     return {
-        at(OLD_RUN, "random_forest.json"): (json.dumps(_rf_model()), NOW - timedelta(days=1)),
-        at(NEW_RUN, "random_forest.json"): (json.dumps(rf if rf is not None else _rf_model()), NOW),
-        at(NEW_RUN, "logistic_regression.json"): (json.dumps(_lr_model(intercept=2.0)), NOW),
-        at(NEW_RUN, "random_forest.joblib"): ("pickle bytes", NOW),
-        at(LEGACY_RUN, "random_forest.joblib"): ("pickle bytes", NOW + timedelta(days=1)),
+        at(PLANTED_RUN, "random_forest.json"): json.dumps(_rf_model()),
+        at(FAILED_RUN, "random_forest.json"): json.dumps(_rf_model()),
+        at(OLD_RUN, "random_forest.json"): json.dumps(_rf_model()),
+        at(NEW_RUN, "random_forest.json"): json.dumps(rf if rf is not None else _rf_model()),
+        at(NEW_RUN, "logistic_regression.json"): json.dumps(_lr_model(intercept=2.0)),
+        at(NEW_RUN, "random_forest.joblib"): "pickle bytes",
+        at(LEGACY_RUN, "random_forest.joblib"): "pickle bytes",
     }
 
 
@@ -154,21 +179,31 @@ def _minio(objects):
     client.bucket_exists.return_value = True
 
     def list_objects(bucket, prefix="", recursive=False):
-        return [SimpleNamespace(object_name=name, last_modified=modified)
-                for name, (_, modified) in sorted(objects.items()) if name.startswith(prefix)]
+        return [SimpleNamespace(object_name=name) for name in sorted(objects) if name.startswith(prefix)]
 
     def get_object(bucket, name):
-        response = io.BytesIO(objects[name][0].encode())
+        response = io.BytesIO(objects[name].encode())
         response.release_conn = lambda: None
         return response
 
     client.list_objects.side_effect = list_objects
     client.get_object.side_effect = get_object
+    client.stat_object.side_effect = lambda bucket, name: SimpleNamespace(size=len(objects[name].encode()))
     return client
 
 
-def _predict(minio, **kwargs):
+def _kfp(runs=KUBEFLOW_RUNS):
+    client = MagicMock()
+    client.list_runs.return_value = SimpleNamespace(
+        runs=[SimpleNamespace(run_id=run_id, state=state) for run_id, state in runs]
+    )
+    return client
+
+
+def _predict(minio, kfp=None, **kwargs):
     with patch("agents.code.get_user_minio_client", new=AsyncMock(return_value=minio)), patch(
+        "agents.code.get_user_kubeflow_client", new=AsyncMock(return_value=kfp or _kfp())
+    ), patch("agents.code.resolve_kubeflow_namespace", return_value=("smart-cities", None)), patch(
         "agents.code._kubeflow_run_id_for_name", new=AsyncMock(return_value=None)
     ):
         return asyncio.run(predict_auto_correction.__wrapped__(**kwargs))
@@ -180,11 +215,13 @@ ENTRIES = [
 ]
 
 
-def test_predicts_with_the_newest_run_and_both_models():
-    minio = _minio(_objects())
-    result = _predict(minio, entries=ENTRIES)
+def test_predicts_with_the_newest_succeeded_run_and_both_models():
+    minio, kfp = _minio(_objects()), _kfp()
+    result = _predict(minio, kfp, entries=ENTRIES)
 
+    # Not the failed run, and not the MinIO folder no Kubeflow run produced
     assert result["run_name"] == NEW_RUN
+    assert kfp.list_runs.call_args.kwargs["namespace"] == "smart-cities"
     assert sorted(result["models"]) == ["Logistic Regression", "Random Forest"]
     close, far = result["predictions"]
     assert close["predictions"]["Random Forest"] == {"probability_auto_correctable": 0.9, "decision": "auto-correctable"}
@@ -192,9 +229,15 @@ def test_predicts_with_the_newest_run_and_both_models():
     assert far["predictions"]["Logistic Regression"]["decision"] == "auto-correctable"
     assert close["models_agree"] is True and far["models_agree"] is False
     assert far["features"]["levenshtein"] == 5 and "field_surname" not in far["features"]
-    # Only the JSON models are read, never the pickles
+    # Only the chosen run's JSON models are read, never the pickles
     read = {c.args[1] for c in minio.get_object.call_args_list}
-    assert read and all(name.endswith(".json") for name in read)
+    assert read and all(name.endswith(".json") and f"/{NEW_RUN}/" in name for name in read)
+
+
+def test_no_default_run_when_kubeflow_knows_none_with_models():
+    result = _predict(_minio(_objects()), _kfp(runs=[(FAILED_RUN, "FAILED"), (LEGACY_RUN, "SUCCEEDED")]),
+                      entries=ENTRIES)
+    assert "pass run_name" in result["error"]
 
 
 def test_model_name_filter_and_explicit_run():
@@ -214,6 +257,17 @@ def test_tampered_model_is_skipped_not_evaluated():
     result = _predict(_minio(_objects(rf=broken)), entries=ENTRIES)
     assert result["models"] == ["Logistic Regression"]
     assert result["skipped_models"][0]["path"].endswith("random_forest.json")
+
+
+def test_oversized_model_file_is_skipped_before_parsing():
+    minio = _minio(_objects())
+    minio.stat_object.side_effect = lambda bucket, name: SimpleNamespace(
+        size=MAX_MODEL_BYTES + 1 if name.endswith("random_forest.json") else 100
+    )
+    result = _predict(minio, entries=ENTRIES)
+    assert result["models"] == ["Logistic Regression"]
+    assert "limit" in result["skipped_models"][0]["reason"]
+    assert not any(c.args[1].endswith("random_forest.json") for c in minio.get_object.call_args_list)
 
 
 @pytest.mark.parametrize("entries, message", [

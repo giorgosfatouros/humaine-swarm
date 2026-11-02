@@ -28,8 +28,12 @@ FEATURE_NAMES = [
     "char_multiset_equal", "digits_equal",
 ]
 MAX_VALUE_LENGTH = 200  # keeps the O(n*m) edit distance cheap
-MAX_TREES = 2000
-MAX_NODES_PER_TREE = 100_000
+# Limits for model files, so a planted file cannot exhaust memory or CPU. The pipeline's
+# 200-tree, depth-8 forest is about 300 KB with about 20k nodes.
+MAX_MODEL_BYTES = 20 * 1024 * 1024
+MAX_TREES = 1000
+MAX_TOTAL_NODES = 2_000_000
+MAX_TREE_DEPTH = 64
 
 
 def _clean(s: Any) -> str:
@@ -96,24 +100,33 @@ def validate_portable_model(model: Any) -> Dict[str, Any]:
         trees = model.get("trees")
         if not isinstance(trees, list) or not 0 < len(trees) <= MAX_TREES:
             raise ValueError(f"trees must be a list of 1 to {MAX_TREES} trees")
+        if not all(isinstance(t, dict) and isinstance(t.get("left"), list) for t in trees):
+            raise ValueError("each tree must have left/right/feature/threshold/p lists")
+        if sum(len(t["left"]) for t in trees) > MAX_TOTAL_NODES:
+            raise ValueError(f"the forest may have at most {MAX_TOTAL_NODES} nodes in total")
         for tree in trees:
-            if not isinstance(tree, dict) or not isinstance(tree.get("left"), list):
-                raise ValueError("each tree must have left/right/feature/threshold/p lists")
             size = len(tree["left"])
-            if not 0 < size <= MAX_NODES_PER_TREE:
-                raise ValueError(f"each tree must have 1 to {MAX_NODES_PER_TREE} nodes")
+            if size == 0:
+                raise ValueError("each tree needs at least one node")
             left = _numbers(tree["left"], size, "left", integer=True)
             right = _numbers(tree.get("right"), size, "right", integer=True)
             feature = _numbers(tree.get("feature"), size, "feature", integer=True)
             _numbers(tree.get("threshold"), size, "threshold")
             p = _numbers(tree.get("p"), size, "p")
+            depth = [0] * size
             for i in range(size):
                 if left[i] == -1:
                     if right[i] != -1 or not 0 <= p[i] <= 1:
                         raise ValueError("leaf nodes need right == -1 and 0 <= p <= 1")
+                    continue
                 # Children always come after their parent, so traversal cannot cycle
-                elif not (i < left[i] < size and i < right[i] < size and 0 <= feature[i] < n):
+                if not (i < left[i] < size and i < right[i] < size and 0 <= feature[i] < n):
                     raise ValueError("split nodes need later child indices and a valid feature index")
+                # Longest path from the root, which bounds the steps one prediction takes in this tree
+                for child in (left[i], right[i]):
+                    depth[child] = max(depth[child], depth[i] + 1)
+                    if depth[child] > MAX_TREE_DEPTH:
+                        raise ValueError(f"trees may be at most {MAX_TREE_DEPTH} levels deep")
     else:
         raise ValueError("model_type must be logistic_regression or random_forest")
     return model

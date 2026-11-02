@@ -29,6 +29,7 @@ from utils.pipeline_builder import (
 from classes.user_handler import UserSessionManager
 from utils.auto_correction_model import (
     FIELD_TYPES as AUTO_CORRECTION_FIELD_TYPES,
+    MAX_MODEL_BYTES,
     MAX_VALUE_LENGTH,
     featurize,
     predict_probability,
@@ -1269,19 +1270,70 @@ MAX_PREDICTION_ENTRIES = 50
 
 def _portable_model_objects(
     client: Minio, bucket_name: str, pipeline_name: str, run_folder: Optional[str] = None
-) -> tuple[Optional[str], List[str]]:
-    """Return (run folder, models/*.json object names) for a run, or for the newest run that has them."""
+) -> Dict[str, List[str]]:
+    """Map run folder -> its models/*.json object names, for one run or every run of the pipeline."""
     base = f"kubeflow/{pipeline_name}/"
     prefix = f"{base}{run_folder}/models/" if run_folder else base
-    by_run: Dict[str, List[Any]] = {}
+    by_run: Dict[str, List[str]] = {}
     for obj in client.list_objects(bucket_name, prefix=prefix, recursive=True):
         parts = obj.object_name[len(base):].split("/")
         if len(parts) == 3 and parts[1] == "models" and parts[2].endswith(".json"):
-            by_run.setdefault(parts[0], []).append(obj)
-    if not by_run:
-        return run_folder, []
-    run = run_folder or max(by_run, key=lambda r: max(o.last_modified for o in by_run[r]))
-    return run, sorted(o.object_name for o in by_run.get(run, []))
+            by_run.setdefault(parts[0], []).append(obj.object_name)
+    return {run: sorted(names) for run, names in by_run.items()}
+
+
+async def _newest_succeeded_run(run_ids: set) -> tuple[Optional[str], Optional[str]]:
+    """Newest succeeded Kubeflow run in the user's namespace whose ID is in run_ids.
+
+    The default run comes from Kubeflow, not from the newest-looking MinIO folder, so a
+    folder that no real run produced is never picked.
+
+    Returns:
+        (run_id, None) on success, or (None, error message) otherwise.
+    """
+    namespace, namespace_error = resolve_kubeflow_namespace()
+    if namespace_error:
+        return None, namespace_error
+    kf_client = await get_user_kubeflow_client()
+    response = kf_client.list_runs(namespace=namespace, sort_by="created_at desc", page_size=100)
+    for run in getattr(response, "runs", None) or []:
+        if run.run_id in run_ids and str(getattr(run, "state", "")).upper() == "SUCCEEDED":
+            return run.run_id, None
+    return None, (
+        f"None of your recent succeeded Kubeflow runs in namespace '{namespace}' published portable "
+        f"models. Run the latest pipeline version, or pass run_name with the run_id to use."
+    )
+
+
+def _load_portable_model(client: Minio, bucket_name: str, object_name: str) -> Dict[str, Any]:
+    """Read and validate one models/*.json file, refusing oversized files before parsing. Raises ValueError."""
+    size = client.stat_object(bucket_name, object_name).size
+    if size > MAX_MODEL_BYTES:
+        raise ValueError(f"model file is {size} bytes; the limit is {MAX_MODEL_BYTES}")
+    return validate_portable_model(_read_json_object(client, bucket_name, object_name))
+
+
+def _score_entries(models: List[Dict[str, Any]], rows: List[Dict[str, str]]) -> List[Dict[str, Any]]:
+    """Each model's probability and decision for each entry."""
+    predictions = []
+    for row in rows:
+        features = featurize(row["field_type"], row["supplied_value"], row["correct_value"])
+        results = {}
+        for model in models:
+            probability = predict_probability(model, features)
+            # Strictly above the threshold, matching scikit-learn's predict()
+            decision = "auto-correctable" if probability > model.get("threshold", 0.5) else "needs operator"
+            results[model.get("model_name") or model["model_type"]] = {
+                "probability_auto_correctable": round(probability, 4),
+                "decision": decision,
+            }
+        predictions.append({
+            **row,
+            "features": {k: v for k, v in features.items() if not k.startswith("field_")},
+            "predictions": results,
+            "models_agree": len({r["decision"] for r in results.values()}) == 1,
+        })
+    return predictions
 
 
 @cl.step(type="tool", name="Auto-Correction Prediction", show_input=False)
@@ -1301,7 +1353,8 @@ async def predict_auto_correction(
     Args:
         entries: Up to 50 dicts with field_type, supplied_value (the citizen's entry) and
             correct_value (the value on record)
-        run_name: Kubeflow run_id whose models to use; the newest run with models if omitted
+        run_name: Kubeflow run_id whose models to use; if omitted, the newest succeeded
+            Kubeflow run in the user's namespace that published models
         model_name: Optional model filter ("random_forest", "Logistic Regression", ...)
         bucket_name: MinIO bucket holding the pipeline results
         pipeline_name: Pipeline folder under kubeflow/ in the bucket
@@ -1332,28 +1385,34 @@ async def predict_auto_correction(
         if not client.bucket_exists(bucket_name):
             return {"error": f"Bucket '{bucket_name}' does not exist or is not accessible with your credentials."}
 
-        run_folder = None
         if run_name:
             run_folder, run_error = await _resolve_run_folder(client, bucket_name, pipeline_name, run_name)
             if run_error:
                 return {"error": run_error}
-        run_folder, model_objects = _portable_model_objects(client, bucket_name, pipeline_name, run_folder)
-        if not model_objects:
-            if run_folder:
+            model_objects = _portable_model_objects(client, bucket_name, pipeline_name, run_folder).get(run_folder)
+            if not model_objects:
                 return {"error": (
                     f"Run '{run_folder}' has no portable models (models/*.json). It was made by an older "
                     f"pipeline version that only saved scikit-learn pickle files, which the assistant does "
                     f"not load. Run the latest version of '{pipeline_name}' and predict with that run."
                 )}
-            return {"error": (
-                f"No run of '{pipeline_name}' in bucket '{bucket_name}' has portable models yet. "
-                f"Run the latest pipeline version first."
-            )}
+        else:
+            by_run = _portable_model_objects(client, bucket_name, pipeline_name)
+            if not by_run:
+                return {"error": (
+                    f"No run of '{pipeline_name}' in bucket '{bucket_name}' has portable models yet. "
+                    f"Run the latest pipeline version first."
+                )}
+            run_folder, run_error = await _newest_succeeded_run(set(by_run))
+            if run_error:
+                return {"error": run_error}
+            model_objects = by_run[run_folder]
 
         models, skipped = [], []
         for object_name in model_objects:
             try:
-                model = validate_portable_model(_read_json_object(client, bucket_name, object_name))
+                # Parsing and validating a large file is CPU work; keep it off the event loop
+                model = await asyncio.to_thread(_load_portable_model, client, bucket_name, object_name)
             except ValueError as e:
                 skipped.append({"path": object_name, "reason": str(e)})
                 continue
@@ -1365,24 +1424,7 @@ async def predict_auto_correction(
         if not models:
             return {"error": f"No usable model matched in run '{run_folder}'.", "skipped_models": skipped}
 
-        predictions = []
-        for row in rows:
-            features = featurize(row["field_type"], row["supplied_value"], row["correct_value"])
-            results = {}
-            for model in models:
-                probability = predict_probability(model, features)
-                # Strictly above the threshold, matching scikit-learn's predict()
-                decision = "auto-correctable" if probability > model.get("threshold", 0.5) else "needs operator"
-                results[model.get("model_name") or model["model_type"]] = {
-                    "probability_auto_correctable": round(probability, 4),
-                    "decision": decision,
-                }
-            predictions.append({
-                **row,
-                "features": {k: v for k, v in features.items() if not k.startswith("field_")},
-                "predictions": results,
-                "models_agree": len({r["decision"] for r in results.values()}) == 1,
-            })
+        predictions = await asyncio.to_thread(_score_entries, models, rows)
 
         result = {
             "bucket_name": bucket_name,
