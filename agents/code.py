@@ -19,7 +19,7 @@ import kfp
 from typing import Dict, List, Optional, Any
 from minio import Minio
 from minio.error import S3Error
-from utils.helper_functions import find_pipeline_id, get_kubeflow_client, kubeflow_dashboard_root
+from utils.helper_functions import find_pipeline_id, get_kubeflow_client, kubeflow_dashboard_root, minio_api_endpoint
 from utils.pipeline_builder import (
     compile_pipeline_source,
     inspect_pipeline_spec,
@@ -1525,9 +1525,14 @@ def _pipeline_namespace(kf_client, pipeline_id: str) -> Optional[str]:
 
 
 def _platform_minio_endpoint() -> str:
-    """The configured MinIO endpoint as pipelines expect it (http:// prefix when not TLS)."""
-    host = _normalize_minio_endpoint(MINIO_ENDPOINT)
-    return host if MINIO_SECURE else f"http://{host}"
+    """The MinIO S3 API endpoint the app itself uses, as pipelines expect it (http:// prefix when not TLS).
+
+    Taken from minio_api_endpoint() rather than MINIO_ENDPOINT, so a console URL there
+    (minio.humaine-horizon.eu) is corrected to the API host for pipelines too.
+    """
+    host, secure = minio_api_endpoint()
+    host = _normalize_minio_endpoint(host)
+    return host if secure else f"http://{host}"
 
 
 def _latest_pipeline_version(kf_client, pipeline_id: str):
@@ -1658,12 +1663,13 @@ async def run_pipeline(
                 # Session keys may only go to the platform MinIO, never to an endpoint chosen by the caller.
                 if "minio_endpoint" in input_names:
                     requested = params.get("minio_endpoint")
-                    if requested and _normalize_minio_endpoint(requested) != _normalize_minio_endpoint(MINIO_ENDPOINT):
+                    platform_endpoint = _platform_minio_endpoint()
+                    if requested and _normalize_minio_endpoint(requested) != _normalize_minio_endpoint(platform_endpoint):
                         return {
-                            "error": f"minio_endpoint must be the platform MinIO ({MINIO_ENDPOINT}) when your "
+                            "error": f"minio_endpoint must be the platform MinIO ({platform_endpoint}) when your "
                                      "session credentials are used. Leave minio_endpoint out."
                         }
-                    params["minio_endpoint"] = _platform_minio_endpoint()
+                    params["minio_endpoint"] = platform_endpoint
                     display_params["minio_endpoint"] = params["minio_endpoint"]
                 credentials = await UserSessionManager.get_or_refresh_minio_credentials() or {}
                 session_values = {

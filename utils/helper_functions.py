@@ -470,17 +470,11 @@ def extract_user_namespace_from_token(access_token: str) -> Optional[str]:
         return None
 
 
-def get_minio_client(user_credentials: Optional[Dict[str, str]] = None) -> Minio:
-    """
-    Initialize and return a MinIO client.
-    
-    Args:
-        user_credentials: Optional dict with user-specific credentials
-                         Expected keys: access_key, secret_key, session_token
-                         If not provided, falls back to environment variables
-    
-    Returns:
-        Configured MinIO client instance
+def minio_api_endpoint() -> tuple[str, bool]:
+    """Return (host[:port], secure) of the platform MinIO S3 API, as the app's clients use it.
+
+    Pipelines launched with the user's session keys get the same endpoint (see run_pipeline),
+    so a console URL in MINIO_ENDPOINT is corrected here once for both.
     """
     # Determine the correct endpoint for S3 API operations
     # Match the test script behavior:
@@ -533,7 +527,23 @@ def get_minio_client(user_credentials: Optional[Dict[str, str]] = None) -> Minio
             # Use port 9000 for direct HTTP access
             api_endpoint = f"{hostname}:9000"
             api_secure = False
+    return api_endpoint, api_secure
+
+
+def get_minio_client(user_credentials: Optional[Dict[str, str]] = None) -> Minio:
+    """
+    Initialize and return a MinIO client.
     
+    Args:
+        user_credentials: Optional dict with user-specific credentials
+                         Expected keys: access_key, secret_key, session_token
+                         If not provided, falls back to environment variables
+    
+    Returns:
+        Configured MinIO client instance
+    """
+    api_endpoint, api_secure = minio_api_endpoint()
+
     if user_credentials:
         # Use user-specific credentials from session
         return Minio(

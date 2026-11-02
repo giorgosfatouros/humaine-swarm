@@ -185,6 +185,19 @@ def test_platform_endpoint_in_any_spelling_is_accepted():
     assert client.run_pipeline.call_args.kwargs["params"]["minio_endpoint"] == _platform_minio_endpoint()
 
 
+def test_console_host_in_config_is_corrected_to_the_s3_api_host():
+    # minio.humaine-horizon.eu is the MinIO console; pipelines given it fail with
+    # "S3 API Requests must be made to API port", as run c880e85c did.
+    client = _client(MINIO_SPEC)
+    with patch("utils.helper_functions.MINIO_ENDPOINT", "minio.humaine-horizon.eu"), patch(
+        "utils.helper_functions.MINIO_API_ENDPOINT", None
+    ), patch("utils.helper_functions.MINIO_SECURE", True):
+        result, _ = _run(client)
+
+    assert "error" not in result
+    assert client.run_pipeline.call_args.kwargs["params"]["minio_endpoint"] == "s3-minio.humaine-horizon.eu"
+
+
 def test_nothing_injected_when_spec_does_not_declare_them():
     client = _client(_spec("max_depth"))
 
