@@ -60,7 +60,6 @@ TOOL_PACKS: Dict[str, Dict[str, Any]] = {
         "description": "Write or upload new Kubeflow pipelines and register them in your namespace.",
         "tools": frozenset({"create_pipeline_draft", "upload_pipeline_draft"}),
         "selectable": True,
-        "default_enabled": False,
     },
     "storage": {
         "label": "Storage and artifacts",
