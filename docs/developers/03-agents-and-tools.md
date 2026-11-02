@@ -102,7 +102,7 @@ The `pipeline_builder` pack (opt-in: `"default_enabled": False` in `TOOL_PACKS`,
 
 **Compile safety.** Compiling runs the module's top level and the `@dsl.pipeline` body on the app server, so `validate_pipeline_source()` checks the AST before anything runs:
 - **Imports:** `from kfp import dsl` / `compiler`, `import kfp`, and `from kfp.dsl import` only for an allowlist (artifact types, the `dsl` helpers, `component`, `pipeline`, `PIPELINE_*` placeholders), plus `typing` and a few stdlib modules. No dunder names or aliases.
-- **Top level:** literal constants (no calls, no `*` / `**`), `@dsl.component` / `@dsl.pipeline` functions, and a skipped `if __name__ == "__main__":` block.
+- **Top level:** literal constants (no calls, no `*` / `**`), `@dsl.component` / `@dsl.pipeline` functions, and a skipped `if __name__ == "__main__":` block. Each module-level name may be bound only once, so a checked name (an imported `dsl` helper, a component) cannot be rebound to something else. Type annotations may only name types, and string annotations are parsed and checked the same way.
 - **Decorators:** exactly `dsl.component` / `dsl.pipeline` (or `kfp.dsl.…`, or names imported under those names) with literal arguments. A backstop scan rejects any call or dunder outside function bodies other than the decorator itself.
 - **Pipeline body:**
   - Only calls to this module's components, `dsl.If` / `ParallelFor` / `ExitHandler` / `Collected` / ..., a few builtins without callbacks (no `sorted` / `min` / `max`, whose `key=` could call arbitrary methods) and allowlisted task methods.

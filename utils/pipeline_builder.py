@@ -124,9 +124,23 @@ class _Validator:
         self.dsl_imports: Dict[str, str] = {}  # bound name -> original name, from `from kfp.dsl import ...`
         self.other_imports: set[str] = set()
         self.pipelines: List[ast.FunctionDef] = []
+        self.bindings: Dict[str, Tuple[str, str]] = {}  # module-level name -> (kind, what it refers to)
 
     def error(self, node: ast.AST, message: str) -> None:
         self.errors.append(f"line {getattr(node, 'lineno', '?')}: {message}")
+
+    def bind(self, node: ast.AST, name: str, kind: str, target: str) -> bool:
+        """Record a module-level name; a second, different binding of the same name is an error.
+
+        The checks below trust what a name was first bound to, so rebinding (e.g. importing
+        pathlib.Path as an imported dsl helper's name) must not be possible.
+        """
+        previous = self.bindings.get(name)
+        if previous is not None and previous != (kind, target):
+            self.error(node, f"'{name}' is bound more than once at module level")
+            return False
+        self.bindings[name] = (kind, target)
+        return True
 
     # -- names --------------------------------------------------------------
 
@@ -220,6 +234,10 @@ class _Validator:
                 return
         if isinstance(node, ast.Import):
             for alias in node.names:
+                bound = alias.asname or alias.name.split(".")[0]
+                target = alias.name if alias.asname else bound
+                if not self.bind(node, bound, "module", target):
+                    continue
                 if alias.name in _KFP_MODULES:
                     if alias.asname is None:
                         self.kfp_roots.add("kfp")
@@ -246,6 +264,8 @@ class _Validator:
                 self.error(node, "wildcard imports are not allowed")
                 continue
             bound = alias.asname or alias.name
+            if not self.bind(node, bound, "from", f"{module}.{alias.name}"):
+                continue
             if module == "kfp":
                 if alias.name == "dsl":
                     self.dsl_modules.add(bound)
@@ -304,12 +324,27 @@ class _Validator:
             if not isinstance(target, ast.Name) or _is_dunder(target.id):
                 self.error(node, "module-level assignments must bind plain names")
                 return
-            self.constants.add(target.id)
+            if self.bind(node, target.id, "constant", str(id(node))):
+                self.constants.add(target.id)
 
-    def check_annotation(self, node: Optional[ast.expr]) -> None:
+    def check_annotation(self, node: Optional[ast.expr], depth: int = 0) -> None:
         if node is None:
             return
         for sub in ast.walk(node):
+            if isinstance(sub, ast.Constant) and isinstance(sub.value, str):
+                # String annotations can be evaluated later (typing.get_type_hints), so check them as code.
+                try:
+                    parsed = ast.parse(sub.value.strip(), mode="eval").body
+                except SyntaxError:
+                    self.error(sub, "string type annotations must be valid type expressions")
+                    return
+                if depth >= 2:
+                    self.error(sub, "nested string type annotations are not allowed")
+                    return
+                for inner in ast.walk(parsed):  # report errors at the annotation's own line
+                    inner.lineno = sub.lineno
+                self.check_annotation(parsed, depth + 1)
+                continue
             if not isinstance(sub, (ast.Name, ast.Attribute, ast.Subscript, ast.Tuple, ast.List,
                                     ast.Constant, ast.BinOp, ast.BitOr, ast.Load)):
                 self.error(sub, "type annotations may only name types "
@@ -343,6 +378,8 @@ class _Validator:
             self.error(node, f"'{node.name}' may not take *args or **kwargs")
         self.check_annotation(node.returns)
 
+        if not self.bind(node, node.name, kinds[0], str(id(node))):
+            return
         if kinds[0] == "component":
             self.components.add(node.name)
         else:

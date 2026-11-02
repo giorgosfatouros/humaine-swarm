@@ -115,6 +115,15 @@ _COMPONENT = "@dsl.component\ndef c():\n    pass\n"
         # dunder aliases and memory blow-ups
         "from kfp import dsl\nimport json as __builtins__\n" + _COMPONENT + "@dsl.pipeline\ndef p():\n    c()\n",
         "from kfp import dsl\nX = 'a' * 10 ** 10\n" + _COMPONENT + "@dsl.pipeline\ndef p():\n    c()\n",
+        # rebinding a name the checks already trust
+        "from kfp import dsl\nfrom kfp.dsl import If\nfrom pathlib import Path as If\n" + _COMPONENT
+        + "@dsl.pipeline\ndef p():\n    If('/tmp/x')\n    c()\n",
+        "from kfp import dsl\n" + _COMPONENT + "from pathlib import Path as c\n@dsl.pipeline\ndef p():\n    c()\n",
+        "from kfp import dsl\nX = 1\nfrom pathlib import Path as X\n" + _COMPONENT + "@dsl.pipeline\ndef p():\n    c()\n",
+        # code in string annotations
+        "from kfp import dsl\n@dsl.component\ndef c(x: \"__import__('os').getcwd()\" = ''):\n    pass\n"
+        "@dsl.pipeline\ndef p():\n    c()\n",
+        "from kfp import dsl\n@dsl.component\ndef c(x: \"'open(1)'\" = ''):\n    pass\n@dsl.pipeline\ndef p():\n    c()\n",
     ],
 )
 def test_security_review_bypasses_are_rejected(source):
@@ -126,6 +135,14 @@ def test_kfp_dsl_qualified_pipeline_is_accepted():
         "import kfp\n\n\n@kfp.dsl.component(base_image='python:3.11-slim')\ndef c(x: str) -> str:\n    return x\n\n\n"
         "@kfp.dsl.pipeline(name='q')\ndef p(x: str = 'a', run: str = kfp.dsl.PIPELINE_JOB_ID_PLACEHOLDER):\n"
         "    with kfp.dsl.If(x == 'a'):\n        c(x=run)\n"
+    )
+    assert validate_pipeline_source(source) == []
+
+
+def test_plain_string_annotation_and_repeated_kfp_import_are_accepted():
+    source = (
+        "import kfp\nimport kfp.dsl\nfrom kfp import dsl\n\n\n@dsl.component\ndef c(x: 'str' = 'a') -> 'str':\n    return x\n\n\n"
+        "@dsl.pipeline\ndef p(x: str = 'a'):\n    c(x=x)\n"
     )
     assert validate_pipeline_source(source) == []
 
