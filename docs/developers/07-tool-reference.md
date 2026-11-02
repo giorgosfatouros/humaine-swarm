@@ -22,6 +22,8 @@ Quick lookup for developers. Implementation: [agents/code.py](../../agents/code.
 | list_kubeflow_namespaces | User's Kubeflow profile namespaces, roles and default | — | list_kubeflow_namespaces | Dashboard env-info (session) |
 | create_experiment | Create a Kubeflow experiment | name | create_experiment | Kubeflow client |
 | get_pipeline_id | Resolve pipeline ID by name | name | get_pipeline_id | Kubeflow client |
+| create_pipeline_draft | Validate and compile LLM-written KFP v2 Python, or load an attached .py/.yaml, into a session draft (no upload) | source_code or attachment_name | create_pipeline_draft | utils/pipeline_builder.py (isolated compile subprocess) |
+| upload_pipeline_draft | Register a draft in the user's private namespace (new pipeline or new version) after a Register/Cancel prompt | draft_id | upload_pipeline_draft | Kubeflow client; `cl.AskActionMessage` |
 | parse_pdf_from_minio | Download, extract text, optional summarization | bucket_name, object_path | parse_pdf_from_minio | MinIO client (user); LangChain for summarization |
 | plot_data | Build Plotly chart from data | data | plot_data | None (Plotly); app.py renders result |
 | query_haic_benchmark | Fetch pilot's HAIC evaluation results | action | query_haic_benchmark | HAIC API (`HAIC_BASE_URL`); pilot map in utils/haic_pilot_map.py |

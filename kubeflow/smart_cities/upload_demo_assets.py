@@ -22,7 +22,6 @@ import argparse
 import asyncio
 import datetime
 import getpass
-import json
 import os
 import sys
 from pathlib import Path
@@ -40,6 +39,7 @@ import requests  # noqa: E402
 from utils.helper_functions import (  # noqa: E402
     fetch_kubeflow_profile_namespaces,
     fetch_minio_credentials_from_keycloak,
+    find_pipeline_id,
     get_kubeflow_client,
     get_minio_client,
     select_default_kubeflow_namespace,
@@ -136,13 +136,6 @@ def resolve_namespace(token: str, requested: str | None) -> str:
     if not namespace:
         raise SystemExit("Your account has no Kubeflow profile namespace; pass --namespace or --shared")
     return namespace
-
-
-def find_pipeline_id(client, name: str, namespace: str | None) -> str | None:
-    """Find a pipeline by name in one namespace (None = shared catalog)."""
-    name_filter = json.dumps({"predicates": [{"operation": "EQUALS", "key": "display_name", "stringValue": name}]})
-    pipelines = client.list_pipelines(namespace=namespace, filter=name_filter, page_size=10).pipelines or []
-    return pipelines[0].pipeline_id if pipelines else None
 
 
 def upload_pipeline(token: str, namespace: str | None) -> None:

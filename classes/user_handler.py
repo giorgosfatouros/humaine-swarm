@@ -287,6 +287,25 @@ class UserSessionManager:
         """Return [{"namespace", "role"}, ...], or None if discovery did not succeed."""
         return cl.user_session.get("kubeflow_namespaces")
 
+    # Pipeline builder: chat attachments and drafts (session only, not persisted)
+    @staticmethod
+    def get_pipeline_attachments() -> Dict[str, str]:
+        """Return {file name: local path} of pipeline files the user attached in this session."""
+        return cl.user_session.get("pipeline_attachments") or {}
+
+    @staticmethod
+    def set_pipeline_attachments(attachments: Dict[str, str]):
+        cl.user_session.set("pipeline_attachments", attachments)
+
+    @staticmethod
+    def get_pipeline_drafts() -> Dict[str, Dict]:
+        """Return {draft_id: draft}, oldest first."""
+        return cl.user_session.get("pipeline_drafts") or {}
+
+    @staticmethod
+    def set_pipeline_drafts(drafts: Dict[str, Dict]):
+        cl.user_session.set("pipeline_drafts", drafts)
+
     @staticmethod
     async def discover_and_store_kubeflow_namespaces():
         """

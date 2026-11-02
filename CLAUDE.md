@@ -58,6 +58,8 @@ Docker publish/deploy: follow `.cursor/skills/humaine-swarm-docker-publish/SKILL
 3. `agents/tool_packs.py`: `TOOL_PACKS` groups tools into user-selectable "packs" (documentation, haic, manufacturing, kubeflow, storage, smart_cities, …) shown in Chainlit ChatSettings. `filter_functions()` limits the tools sent to the model and `build_system_prompt()` assembles the system prompt from `agents/system.md` plus per-pack guidance. Some packs are gated by pilot authorization (e.g. `smart_cities` requires a pilot context). `plot_data` is always on.
 
 `tests/test_tool_packs.py::test_all_definition_tools_are_covered_by_packs` fails if a defined tool isn't in any pack.
+
+**Pipeline builder** (opt-in pack `pipeline_builder`): `create_pipeline_draft` compiles LLM-written KFP v2 Python (or an attached `.py`/`.yaml`) into a session draft, and `upload_pipeline_draft` registers it in the user's private namespace only after a `cl.AskActionMessage` confirmation. Compiling runs code on the server, so `utils/pipeline_builder.py` AST-validates the source and compiles in an isolated `python -I` subprocess with a minimal env. Keep both layers when changing it.
 ### Auth and per-user clients
 - Two login paths: `@cl.oauth_callback` (Keycloak OAuth) and `@cl.header_auth_callback` (`utils/keycloak_header_auth.py`, bearer JWT verified against JWKS when embedded in the Common FE).
 - On chat start, `classes/user_handler.UserSessionManager` stores the token, exchanges it for MinIO STS credentials (AssumeRoleWithWebIdentity, with auto-refresh), and pulls the Kubeflow namespace, roles, groups and policies from the token claims.

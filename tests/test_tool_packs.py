@@ -38,11 +38,13 @@ def test_smart_cities_authorized_for_pilot_user():
     assert "smart_cities" in authorized
 
 
-def test_default_enabled_matches_authorized():
+def test_default_enabled_is_authorized_minus_opt_in_packs():
     pilot_context = {"pilot": "smart_cities", "has_access": True, "user_email": "x"}
-    assert get_default_enabled_pack_ids(pilot_context) == get_authorized_pack_ids(
-        pilot_context
-    )
+    authorized = get_authorized_pack_ids(pilot_context)
+    defaults = get_default_enabled_pack_ids(pilot_context)
+    assert "pipeline_builder" in authorized
+    assert "pipeline_builder" not in defaults
+    assert defaults == [pid for pid in authorized if pid != "pipeline_builder"]
 
 
 def test_resolve_enabled_pack_ids_always_includes_charts():

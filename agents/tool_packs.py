@@ -55,6 +55,13 @@ TOOL_PACKS: Dict[str, Dict[str, Any]] = {
         ),
         "selectable": True,
     },
+    "pipeline_builder": {
+        "label": "Pipeline builder",
+        "description": "Write or upload new Kubeflow pipelines and register them in your namespace.",
+        "tools": frozenset({"create_pipeline_draft", "upload_pipeline_draft"}),
+        "selectable": True,
+        "default_enabled": False,
+    },
     "storage": {
         "label": "Storage and artifacts",
         "description": "MinIO buckets, pipeline artifacts, metrics, PDFs.",
@@ -130,6 +137,14 @@ _PACK_PROMPT_SECTIONS: Dict[str, str] = {
     "kubeflow": """- **Kubeflow pipelines and runs**: Use Kubeflow tools to list pipelines, inspect definitions/versions, list runs and experiments, and execute pipelines. `get_kf_pipelines` returns both the user's private namespace and the shared HumAIne catalog by default — ready-to-use templates usually have `namespace_type: shared` (often `namespace: ""`). The private namespace may be empty. Each listed pipeline includes `namespace` and `namespace_type`; use those when explaining or running a pipeline. Runs and experiments always live in a user profile namespace: omit `namespace` to use the user's default, and call `list_kubeflow_namespaces` when the user asks which namespaces they have or wants a different one. Never guess a namespace (e.g. `humaine`). Be mindful of the distinction between `run_id` and `run_name`:
     - `run_id` is a unique identifier assigned by Kubeflow to a specific pipeline run instance (e.g., used with `get_run_details`).
     - `run_name` is often a string used in MinIO paths to organize artifacts, typically composed of the pipeline name and a unique run identifier/timestamp (e.g., used with `get_model_metrics`, `get_pipeline_artifacts_from_MinIO`). Always check the tool's parameter description if unsure.""",
+    "pipeline_builder": """- **Pipeline builder (new Kubeflow pipelines)**: When the user wants a new pipeline, agree on the steps, data location (MinIO bucket and objects) and parameters in chat first, then write a complete KFP v2 Python file and call `create_pipeline_draft(source_code=...)`. When the user attached a `.py` or `.yaml` pipeline (the message lists `[Attached pipeline files: ...]`), call `create_pipeline_draft(attachment_name=...)` instead. If it returns a compile or validation error, fix the code and call it again. Summarize the draft (inputs, steps, packages), then call `upload_pipeline_draft` when the user wants it registered: it shows a Register/Cancel button, so do not ask for a second confirmation in text. It registers privately in the user's namespace, never the shared catalog. The tool posts the pipeline_id, version_id and Kubeflow link itself, so do not retype them; when you call `run_pipeline`, copy `pipeline_id` character for character from the tool result. Afterwards offer `create_experiment` and `run_pipeline` (the Kubeflow pack must be enabled).
+  The file is validated before compiling, so follow these rules exactly:
+    - Module level: only `from kfp import dsl` (and `from kfp.dsl import Input, Output, Dataset, Model, Metrics, ClassificationMetrics, HTML, Artifact`), `typing` imports, literal constants, `@dsl.component` functions and exactly one `@dsl.pipeline(name=..., description=...)` function. No other imports, helper functions or code at module level.
+    - Components: `@dsl.component(base_image="python:3.11-slim", packages_to_install=["pandas==2.2.3", ...])` with pinned versions. Put every import inside the component function. Pass data between steps with `Input[...]`/`Output[...]` artifacts or simple return values; no `NamedTuple`.
+    - Pipeline function: only call components, `dsl.If`/`dsl.ParallelFor`/`dsl.ExitHandler`/`dsl.Collected`, basic builtins (`dict`, `range`, ...) and task methods such as `.after()`, `.set_caching_options(False)`, `.set_cpu_limit()`, `.set_memory_limit()`. Never call `set_display_name()` (it breaks the cluster's KFP driver). No dunder names.
+    - MinIO data: declare pipeline parameters `minio_endpoint: str = "s3-minio.humaine-horizon.eu"`, `minio_access_key: str = ""`, `minio_secret_key: str = ""`, `minio_session_token: str = ""` and pass them to the steps that read or write MinIO (`Minio(endpoint, access_key=minio_access_key, secret_key=minio_secret_key, session_token=minio_session_token or None, secure=True)`). `run_pipeline` fills the keys from the user's session; never ask for keys or put them in code. Call `.set_caching_options(False)` on steps that take them.
+    - Results: publish to `<bucket>/kubeflow/<pipeline-name>/<run_id>/` with `run_id=dsl.PIPELINE_JOB_ID_PLACEHOLDER`, using `metrics/<model>_metrics.json`, `plots/<model>_<type>.html` (small text tables only), `models/` and `metadata/run_parameters.json`, so `get_model_metrics`, `get_pipeline_visualization` and `compare_pipeline_runs` can read them.
+    - Reference: the Smart Cities auto-correction classifier (`kubeflow/smart_cities/auto_correction_pipeline.py`) follows all of these rules.""",
     "smart_cities": """- **Smart Cities pilot data**: Use `analyze_smart_cities_data` and `compare_smart_cities_files` for Smart Cities pilot application pickle files in MinIO (error distributions, AI/operator decisions, processing time, confusion matrices). Use `list_user_buckets()` first for exact file paths, unless the user already names the bucket and file. When the user names a pickle file, call `analyze_smart_cities_data` directly with the matching `query_type` (processing time -> `processing_time`; AI decisions -> `ai_decisions`; operator outcomes -> `operator_decisions`; error counts -> `error_distribution`). For several files or versions call `compare_smart_cities_files`. Never answer questions about pickle contents (statistics, distributions, comparisons) from a bucket listing or `get_minio_info`: a listing shows file names only.
 - **Auto-correction classifier pipeline**: the shared Kubeflow pipeline `smart-cities-auto-correction-classifier` trains a logistic regression and a random forest that decide whether a citizen's mistaken application entry can be auto-corrected (obvious mistake) or needs a human operator. Run it with `run_pipeline` and leave `minio_access_key`, `minio_secret_key` and `minio_session_token` out: they are filled from the user's session; never ask the user for them. Results go to bucket `smart-cities-data` under `kubeflow/smart-cities-auto-correction-classifier/<run_id>/`, where `<run_id>` is the Kubeflow `run_id` returned by `run_pipeline`. Once `get_run_details` reports the run succeeded, use `get_model_metrics(bucket_name="smart-cities-data", pipeline_name="smart-cities-auto-correction-classifier", run_name=<run_id>)` for scores (both models, per-field accuracy included), `get_pipeline_visualization` with the same bucket, pipeline name and `run_name`, `visualization_type` `confusion_matrix`, `roc_curve` or `feature_importance`, and `model_name` `logistic_regression` or `random_forest` (with underscores) for the tables, and `compare_pipeline_runs` to compare runs.""",
     "charts": """**Visualization Tools**
@@ -203,8 +218,12 @@ def get_authorized_pack_ids(
 def get_default_enabled_pack_ids(
     pilot_context: Optional[Dict[str, Any]] = None,
 ) -> List[str]:
-    """All authorized selectable packs enabled by default."""
-    return get_authorized_pack_ids(pilot_context)
+    """Authorized selectable packs enabled by default (all but those marked default_enabled=False)."""
+    return [
+        pack_id
+        for pack_id in get_authorized_pack_ids(pilot_context)
+        if TOOL_PACKS[pack_id].get("default_enabled", True)
+    ]
 
 
 def resolve_enabled_pack_ids(
@@ -293,7 +312,7 @@ def build_system_prompt(enabled_pack_ids: Iterable[str]) -> str:
 
     guideline_packs = [
         pid
-        for pid in ("documentation", "manufacturing", "haic", "storage", "kubeflow", "smart_cities")
+        for pid in ("documentation", "manufacturing", "haic", "storage", "kubeflow", "pipeline_builder", "smart_cities")
         if pid in enabled
     ]
     if guideline_packs:

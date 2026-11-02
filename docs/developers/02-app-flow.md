@@ -4,7 +4,8 @@
 
 1. User sends a message in the Chainlit UI.
 2. **`@cl.on_message`** invokes **`main(message)`** in [app.py](../../app.py).
-3. **Message history**: `UserSessionManager.get_message_history()`; append `{"role": "user", "content": message.content}`.
+3. **Message history**: `UserSessionManager.get_message_history()`; append `{"role": "user", "content": message.content + register_pipeline_attachments(message)}`.
+   - **Attachments**: `register_pipeline_attachments()` keeps `.py` / `.yaml` / `.yml` files of 200 KB or less from `message.elements` in the session (`pipeline_attachments`, name → local path) for `create_pipeline_draft`, and appends `[Attached pipeline files: ...]` to the user turn so the model knows about them. Larger pipeline files get an `[Ignored attachments ...]` note. Other attachment types are ignored.
 4. **OpenAI call**: `create_response_stream(message_history)` → `client.responses.create(input=..., instructions=..., **settings)`.
    - `settings` from [utils/config.py](../../utils/config.py): model, **tools**, **reasoning**, **max_output_tokens**, **stream**: True.
    - `message_history` is the single source of truth (system prompt extracted to `instructions` via [utils/responses_adapter.py](../../utils/responses_adapter.py)).

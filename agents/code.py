@@ -19,13 +19,21 @@ import kfp
 from typing import Dict, List, Optional, Any
 from minio import Minio
 from minio.error import S3Error
-from utils.helper_functions import get_kubeflow_client
+from utils.helper_functions import find_pipeline_id, get_kubeflow_client, kubeflow_dashboard_root
+from utils.pipeline_builder import (
+    compile_pipeline_source,
+    inspect_pipeline_spec,
+    load_pipeline_yaml,
+    pipeline_root_parameters,
+)
 from classes.user_handler import UserSessionManager
 from utils.haic_pilot_map import resolve_haic_pilot_context
 from utils.haic_client import query_haic_benchmark as haic_query
 from utils.semantic_inference_client import query_manufacturing_knowledge as manufacturing_query
 from io import BytesIO
 import tempfile
+import uuid
+from pathlib import Path
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain.chains.summarize import load_summarize_chain
@@ -1512,14 +1520,7 @@ def _pipeline_input_names(kf_client, pipeline_id: str, version_id: Optional[str]
             else:
                 import yaml
                 spec = yaml.safe_load(spec)
-        if not isinstance(spec, dict):
-            return set()
-        # Specs uploaded with a platform spec are wrapped as {"pipeline_spec": ..., "platform_spec": ...}
-        if "root" not in spec and isinstance(spec.get("pipeline_spec"), dict):
-            spec = spec["pipeline_spec"]
-
-        parameters = spec["root"]["inputDefinitions"]["parameters"]
-        return set(parameters) if isinstance(parameters, dict) else set()
+        return set(pipeline_root_parameters(spec))
     except Exception as e:
         logger.debug(f"Could not read pipeline input definitions: {str(e)}")
         return set()
@@ -2064,6 +2065,200 @@ async def get_pipeline_id(name: str) -> Dict:
     except Exception as e:
         logger.error(f"Error retrieving pipeline ID: {str(e)}")
         return {"error": str(e)}
+
+MAX_PIPELINE_DRAFTS = 5
+
+
+def _pipeline_file_stem(name: str) -> str:
+    return re.sub(r"[^A-Za-z0-9_.-]+", "-", name).strip("-.") or "pipeline"
+
+
+def _pipeline_ui_url(namespace: str, pipeline_id: str) -> Optional[str]:
+    try:
+        return f"{kubeflow_dashboard_root()}/_/pipeline/?ns={namespace}#/pipelines/details/{pipeline_id}"
+    except ValueError:
+        return None
+
+
+@cl.step(type="tool", name="Create Pipeline Draft", show_input=False)
+async def create_pipeline_draft(
+    pipeline_name: Optional[str] = None,
+    description: Optional[str] = None,
+    source_code: Optional[str] = None,
+    attachment_name: Optional[str] = None,
+) -> Dict:
+    """
+    Compile a KFP v2 pipeline into a session draft, without registering it in Kubeflow.
+
+    Args:
+        pipeline_name: Name to register the pipeline under (default: the name in the spec)
+        description: Pipeline description (default: the description in the spec)
+        source_code: KFP v2 Python DSL source written by the assistant
+        attachment_name: Name of a .py or .yaml file the user attached in this chat
+
+    Returns:
+        Dict with the draft_id and a summary (inputs, steps, images, packages), or an error
+    """
+    try:
+        if bool(source_code) == bool(attachment_name):
+            return {"error": "Pass exactly one of source_code or attachment_name."}
+
+        py_source, yaml_text = source_code, None
+        if attachment_name:
+            attachments = UserSessionManager.get_pipeline_attachments()
+            path = attachments.get(attachment_name)
+            if not path:
+                return {
+                    "error": f"No attached file named '{attachment_name}'.",
+                    "attached_files": sorted(attachments),
+                }
+            text = Path(path).read_text(encoding="utf-8")
+            if attachment_name.lower().endswith(".py"):
+                py_source = text
+            else:
+                py_source, yaml_text = None, text
+
+        if py_source is not None:
+            yaml_text, compile_error = await asyncio.to_thread(compile_pipeline_source, py_source)
+            if compile_error:
+                return {
+                    "error": compile_error,
+                    "hint": "Fix the source and call create_pipeline_draft again.",
+                }
+
+        spec, spec_error = load_pipeline_yaml(yaml_text)
+        if spec_error:
+            return {"error": spec_error}
+        summary = inspect_pipeline_spec(spec)
+        name = (pipeline_name or "").strip() or summary["name"]
+        if not name:
+            return {"error": "The spec has no pipeline name; pass pipeline_name."}
+
+        draft_id = uuid.uuid4().hex[:8]
+        drafts = dict(UserSessionManager.get_pipeline_drafts())
+        drafts[draft_id] = {
+            "pipeline_name": name,
+            "description": (description or "").strip() or summary.get("description") or "",
+            "source_code": py_source,
+            "yaml": yaml_text,
+            "summary": summary,
+            "origin": "attachment" if attachment_name else "generated",
+            "created_at": datetime.now().isoformat(timespec="seconds"),
+        }
+        while len(drafts) > MAX_PIPELINE_DRAFTS:
+            drafts.pop(next(iter(drafts)))
+        UserSessionManager.set_pipeline_drafts(drafts)
+
+        stem = _pipeline_file_stem(name)
+        elements = [cl.File(name=f"{stem}.yaml", content=yaml_text.encode("utf-8"), mime="text/plain", display="inline")]
+        if py_source is not None:
+            elements.insert(0, cl.File(name=f"{stem}.py", content=py_source.encode("utf-8"), mime="text/plain", display="inline"))
+        await cl.Message(
+            content=f"Draft pipeline **{name}** compiled ({len(summary['steps'])} steps). "
+                    "Nothing is registered in Kubeflow yet.",
+            elements=elements,
+        ).send()
+
+        return {
+            "status": "draft",
+            "draft_id": draft_id,
+            "pipeline_name": name,
+            "summary": summary,
+            "message": "Summarize the draft for the user. Call upload_pipeline_draft only when they want it "
+                       "registered; it asks them to confirm.",
+        }
+    except Exception as e:
+        logger.error(f"Error creating pipeline draft: {str(e)}")
+        return {"error": str(e)}
+
+
+@cl.step(type="tool", name="Upload Pipeline Draft", show_input=False)
+async def upload_pipeline_draft(draft_id: str, namespace: Optional[str] = None) -> Dict:
+    """
+    Register a pipeline draft in the user's private Kubeflow namespace after the user confirms.
+
+    Adds a new version when a pipeline with the same name already exists in that namespace.
+
+    Args:
+        draft_id: ID returned by create_pipeline_draft
+        namespace: Optional profile namespace (default: the user's own); never the shared catalog
+
+    Returns:
+        Dict with pipeline_id, version_id and namespace, or a cancelled status or an error
+    """
+    try:
+        drafts = UserSessionManager.get_pipeline_drafts()
+        draft = drafts.get(draft_id)
+        if not draft:
+            return {"error": f"No pipeline draft '{draft_id}' in this session.", "draft_ids": list(drafts)}
+
+        namespace, namespace_error = resolve_kubeflow_namespace(namespace)
+        if namespace_error:
+            return {"error": namespace_error}
+
+        kf_client = await get_user_kubeflow_client()
+        name = draft["pipeline_name"]
+        existing_id = find_pipeline_id(kf_client, name, namespace)
+        target = "a new version of the existing pipeline" if existing_id else "a new private pipeline"
+
+        answer = await cl.AskActionMessage(
+            content=f"Register **{name}** in Kubeflow namespace `{namespace}` as {target}?",
+            actions=[
+                cl.Action(name="register_pipeline", payload={"choice": "register"}, label="Register"),
+                cl.Action(name="cancel_pipeline", payload={"choice": "cancel"}, label="Cancel"),
+            ],
+            timeout=300,
+        ).send()
+        if not answer or (answer.get("payload") or {}).get("choice") != "register":
+            return {"status": "cancelled", "message": "The user did not confirm; nothing was registered."}
+
+        with tempfile.TemporaryDirectory(prefix="swarm-upload-") as workdir:
+            package_path = str(Path(workdir) / f"{_pipeline_file_stem(name)}.yaml")
+            Path(package_path).write_text(draft["yaml"], encoding="utf-8")
+            if existing_id:
+                version = kf_client.upload_pipeline_version(
+                    pipeline_package_path=package_path,
+                    pipeline_version_name="v" + datetime.now().strftime("%Y%m%d-%H%M%S"),
+                    pipeline_id=existing_id,
+                    description=draft["description"] or None,
+                )
+                pipeline_id = existing_id
+            else:
+                pipeline = kf_client.upload_pipeline(
+                    pipeline_package_path=package_path,
+                    pipeline_name=name,
+                    description=draft["description"] or None,
+                    namespace=namespace,
+                )
+                pipeline_id = pipeline.pipeline_id
+                version = _latest_pipeline_version(kf_client, pipeline_id)
+
+        version_id = getattr(version, "pipeline_version_id", None)
+        ui_url = _pipeline_ui_url(namespace, pipeline_id)
+        # Post the IDs ourselves: models sometimes garble UUIDs when retyping them.
+        await cl.Message(
+            content=f"Registered **{name}** in namespace `{namespace}` "
+                    f"as {'a new version' if existing_id else 'a new private pipeline'}.\n\n"
+                    f"- pipeline_id: `{pipeline_id}`\n- version_id: `{version_id}`"
+                    + (f"\n\n[Open in Kubeflow]({ui_url})" if ui_url else ""),
+        ).send()
+
+        return {
+            "status": "new_version" if existing_id else "new_pipeline",
+            "pipeline_id": pipeline_id,
+            "version_id": version_id,
+            "version_name": getattr(version, "display_name", None),
+            "pipeline_name": name,
+            "namespace": namespace,
+            "namespace_type": "private",
+            "kubeflow_ui_url": ui_url,
+            "message": "The user already sees these IDs and the link. Do not repeat the IDs; when calling "
+                       "run_pipeline, copy pipeline_id exactly from this result.",
+        }
+    except Exception as e:
+        logger.error(f"Error uploading pipeline draft: {str(e)}")
+        return {"error": str(e)}
+
 
 @cl.step(type="tool", name="PDF Parser", show_input=False)
 async def parse_pdf_from_minio(
@@ -3605,6 +3800,8 @@ function_map = {
     "get_experiment_details": get_experiment_details,
     "list_kubeflow_namespaces": list_kubeflow_namespaces,
     "create_experiment": create_experiment,
+    "create_pipeline_draft": create_pipeline_draft,
+    "upload_pipeline_draft": upload_pipeline_draft,
     "get_pipeline_id": get_pipeline_id,
     "parse_pdf_from_minio": parse_pdf_from_minio,
     "plot_data": plot_data,

@@ -3,6 +3,7 @@ from utils.dotenv_local import load_swarm_dotenv
 load_swarm_dotenv()
 
 import asyncio
+import os
 import chainlit as cl
 from chainlit import User
 from chainlit.input_widget import MultiSelect
@@ -432,6 +433,40 @@ async def process_responses_stream(stream, message_history, msg):
         msg.elements = []
 
 
+PIPELINE_ATTACHMENT_SUFFIXES = (".py", ".yaml", ".yml")
+MAX_PIPELINE_ATTACHMENT_BYTES = 200_000
+
+
+def register_pipeline_attachments(message: cl.Message) -> str:
+    """Remember attached pipeline files for create_pipeline_draft and return a note for the model.
+
+    Other attachment types are ignored, as before.
+    """
+    attachments = dict(UserSessionManager.get_pipeline_attachments())
+    added, skipped = [], []
+    for element in getattr(message, "elements", None) or []:
+        name = getattr(element, "name", None) or ""
+        path = getattr(element, "path", None)
+        if not path or not name.lower().endswith(PIPELINE_ATTACHMENT_SUFFIXES):
+            continue
+        try:
+            too_big = os.path.getsize(path) > MAX_PIPELINE_ATTACHMENT_BYTES
+        except OSError:
+            continue
+        if too_big:
+            skipped.append(name)
+            continue
+        attachments[name] = path
+        added.append(name)
+    if not added and not skipped:
+        return ""
+    UserSessionManager.set_pipeline_attachments(attachments)
+    note = f"\n\n[Attached pipeline files: {', '.join(added)}]" if added else ""
+    if skipped:
+        note += f"\n\n[Ignored attachments over {MAX_PIPELINE_ATTACHMENT_BYTES // 1000} KB: {', '.join(skipped)}]"
+    return note
+
+
 # Main function that handles user messages
 @cl.on_message
 async def main(message: cl.Message):
@@ -447,7 +482,9 @@ async def main(message: cl.Message):
 
     # Get the message history and append the new user message
     message_history = UserSessionManager.get_message_history()
-    message_history.append({"role": "user", "content": message.content})
+    message_history.append(
+        {"role": "user", "content": message.content + register_pipeline_attachments(message)}
+    )
 
     haic_action = detect_haic_live_query(message.content)
     if haic_action and is_haic_pack_enabled(get_enabled_pack_ids()):

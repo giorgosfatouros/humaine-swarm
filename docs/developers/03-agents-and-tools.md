@@ -49,6 +49,10 @@ graph LR
         create_experiment[create_experiment]
         get_pipeline_id[get_pipeline_id]
     end
+    subgraph Builder [Pipeline builder]
+        create_pipeline_draft[create_pipeline_draft]
+        upload_pipeline_draft[upload_pipeline_draft]
+    end
     subgraph Viz [Visualization]
         plot_data[plot_data]
     end
@@ -88,6 +92,21 @@ Kubeflow tools use **`get_user_kubeflow_client()`** in code.py: it reads the ses
 **MinIO credential injection in `run_pipeline`.** Pipelines that read or write MinIO (for example the Smart Cities `smart-cities-auto-correction-classifier`) declare `minio_access_key`, `minio_secret_key` and `minio_session_token` input parameters. When `run_pipeline` gets a `pipeline_id`, it reads the pipeline version's `pipeline_spec["root"]["inputDefinitions"]["parameters"]` via **`_pipeline_input_names()`** (the latest version when `version_id` is omitted). If the spec declares `minio_session_token` and the caller left any of the three params missing or empty, they are filled from **`UserSessionManager.get_or_refresh_minio_credentials()`** (the user's STS `access_key` / `secret_key` / `session_token`). Non-empty values passed by the caller are kept. With no session credentials the tool returns `{"error": ...}` and does not start the run. Runs from `pipeline_package_path` are not touched. Secrets are never logged, and the returned `params` show `"<injected from session>"` for injected keys. The tool description tells the model never to ask the user for these params.
 
 Caveat: the injected keys are temporary STS credentials, but they are stored as plain run parameters and printed in every step's executor log, so anyone who can see the run in the Kubeflow UI or API can read them until they expire (they expire with the user's session). A run that outlives them loses MinIO access. **get_run_details** shows `"<redacted>"` for these params so they never reach the model, and lists each failed step's error under `failed_tasks` (the Kubeflow UI often shows no logs for a step whose pod never started).
+
+### Pipeline builder
+
+The `pipeline_builder` pack (opt-in: `"default_enabled": False` in `TOOL_PACKS`, so it is off until the user turns it on in chat settings) lets the assistant add pipelines to Kubeflow. Its prompt section is a compact authoring guide: KFP v2 lightweight components, the MinIO credential parameters, the `kubeflow/<pipeline>/<run_id>/` results layout read by the MinIO tools, and the validator's rules.
+
+- **create_pipeline_draft** takes either `source_code` (KFP v2 Python the model wrote) or `attachment_name` (a file from `pipeline_attachments`, see [02-app-flow.md](02-app-flow.md)). Python is checked and compiled by [utils/pipeline_builder.py](../../utils/pipeline_builder.py). YAML is only parsed and checked for a KFP v2 structure (`load_pipeline_yaml`). The draft (name, description, source, YAML, summary) goes into the session under `pipeline_drafts`, which keeps at most 5. The `.py` and `.yaml` are sent to the user as `cl.File` elements. Nothing reaches Kubeflow at this step.
+- **upload_pipeline_draft** resolves the namespace with `resolve_kubeflow_namespace()`. That never yields `None`, so the shared catalog cannot be targeted, and it rejects namespaces outside the user's discovered list. It then asks the user with a `cl.AskActionMessage` Register/Cancel prompt (5-minute timeout). Only on Register does it call `upload_pipeline(..., namespace=ns)`, or `upload_pipeline_version(...)` with a `v<timestamp>` version name when `find_pipeline_id()` finds a pipeline of the same name in that namespace. The confirmation is enforced in code, not left to the prompt. After the upload the tool posts its own message with the exact `pipeline_id`, `version_id` and Kubeflow link. In live testing the model garbled the pipeline UUID when retyping it in prose, so the IDs no longer depend on the model.
+
+**Compile safety.** Compiling runs the module's top level and the `@dsl.pipeline` body on the app server, so `validate_pipeline_source()` checks the AST before anything runs:
+- Top level: only kfp / `typing` / a few stdlib imports, literal constants, `@dsl.component` / `@dsl.pipeline` functions, and a skipped `if __name__ == "__main__":` block.
+- Decorator arguments, defaults and annotations: no calls.
+- Pipeline body: only calls to this module's components, `dsl.If` / `ParallelFor` / `ExitHandler` / `Collected` / ..., basic builtins and allowlisted task methods.
+- Everywhere: no dunder names, no `set_display_name()` (it crashes the cluster's KFP driver).
+
+Component bodies are not checked, because they run only in the user's own Kubeflow pods. `compile_pipeline_source()` then compiles in `python -I -W ignore` with a minimal environment (`PATH`, `HOME`=temp dir, `LANG`; no API keys or tokens) and a 60 s timeout, and returns a trimmed traceback (user frames plus the error) for the model to fix. `kubeflow/smart_cities/auto_correction_pipeline.py` passes the validator and is used as a test fixture.
 
 ### Visualization
 

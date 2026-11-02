@@ -596,6 +596,69 @@ functions = [
     {
         "type": "function",
         "function": {
+            "name": "create_pipeline_draft",
+            "description": (
+                "Compile a Kubeflow (KFP v2) pipeline into a draft for the user to review. Pass either "
+                "source_code (KFP v2 Python DSL you wrote, following the pipeline builder guidelines) or "
+                "attachment_name (a .py or .yaml file the user attached in this chat). Nothing is registered "
+                "in Kubeflow; on a compile error, fix the source and call again. Returns a draft_id for "
+                "upload_pipeline_draft."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "pipeline_name": {
+                        "type": "string",
+                        "description": "Name to register the pipeline under, lowercase-with-hyphens. Omit to use the name in the spec"
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "One-sentence description of what the pipeline does. Omit to use the spec's description"
+                    },
+                    "source_code": {
+                        "type": "string",
+                        "description": "Complete KFP v2 Python file: kfp imports, @dsl.component functions and exactly one @dsl.pipeline function"
+                    },
+                    "attachment_name": {
+                        "type": "string",
+                        "description": "File name of a .py or .yaml pipeline the user attached, exactly as listed in [Attached pipeline files: ...]"
+                    }
+                },
+                "required": [],
+                "additionalProperties": False
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "upload_pipeline_draft",
+            "description": (
+                "Register a draft from create_pipeline_draft in the user's private Kubeflow namespace. The user "
+                "is asked to confirm with a button before anything is uploaded. If a pipeline with the same name "
+                "already exists in that namespace, a new version is added. Returns pipeline_id and version_id "
+                "for run_pipeline."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "draft_id": {
+                        "type": "string",
+                        "description": "draft_id returned by create_pipeline_draft"
+                    },
+                    "namespace": {
+                        "type": "string",
+                        "description": "Optional profile namespace from list_kubeflow_namespaces. Omit to use the user's own namespace"
+                    }
+                },
+                "required": ["draft_id"],
+                "additionalProperties": False
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "get_pipeline_id",
             "description": "Gets the ID of a Kubeflow pipeline by its name",
             "parameters": {

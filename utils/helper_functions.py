@@ -650,6 +650,13 @@ def fetch_kubeflow_profile_namespaces(user_token: str, timeout: float = 10.0) ->
     return namespaces
 
 
+def find_pipeline_id(client: kfp.Client, name: str, namespace: Optional[str]) -> Optional[str]:
+    """Find a pipeline by exact display name in one namespace (None = shared catalog)."""
+    name_filter = json.dumps({"predicates": [{"operation": "EQUALS", "key": "display_name", "stringValue": name}]})
+    pipelines = client.list_pipelines(namespace=namespace, filter=name_filter, page_size=10).pipelines or []
+    return pipelines[0].pipeline_id if pipelines else None
+
+
 def select_default_kubeflow_namespace(namespaces: list[dict]) -> Optional[str]:
     """Pick the default namespace: the one the user owns, else the first listed."""
     for entry in namespaces:

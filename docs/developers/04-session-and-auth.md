@@ -27,6 +27,7 @@ Implemented in [classes/user_handler.py](../../classes/user_handler.py). All sta
 | MinIO credentials | `set_minio_credentials`, `get_minio_credentials`, `are_minio_credentials_valid`, `fetch_and_store_minio_credentials`, `get_or_refresh_minio_credentials` | access_key, secret_key, session_token, expiry; refresh on expiry or when “should refresh” (exp &lt; 5 min) |
 | Kubeflow namespace | `set_kubeflow_namespace`, `get_kubeflow_namespace`, `extract_and_store_namespace` | Default namespace for runs/experiments: discovered profile namespace, else token claim |
 | Kubeflow namespaces | `set_kubeflow_namespaces`, `get_kubeflow_namespaces`, `discover_and_store_kubeflow_namespaces` | `[{"namespace", "role"}]` from dashboard `env-info`; `None` = discovery failed, `[]` = user has no profile namespace |
+| Pipeline builder | `get_pipeline_attachments`, `set_pipeline_attachments`, `get_pipeline_drafts`, `set_pipeline_drafts` | Attached `.py`/`.yaml` paths and compiled drafts for `create_pipeline_draft` / `upload_pipeline_draft`. Session only: lost on thread resume |
 | Token metadata | `set_token_metadata`, `get_token_metadata`, `extract_and_store_token_info` | exp, email, roles, policies, etc. |
 | Policies / roles | `set_user_policies`, `get_user_policies`, `set_user_roles`, `get_user_roles` | From token (MinIO policies, Keycloak roles) |
 | Groups | `set_user_groups`, `get_user_groups` | Keycloak `groups` claim (used for HAIC pilot mapping) |
