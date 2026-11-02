@@ -17,7 +17,7 @@
 | HAIC_API_KEY | HAIC_API_KEY | Optional; unused while HAIC API is public |
 | PINECONE_API_KEY | PINECONE_API_KEY | Required (no default) |
 | PINECONE_INDEX | — | `"humaine"` (hardcoded) |
-| LLM_MODEL | — | `"gpt-5.6-luna"` |
+| LLM_MODEL | — | `"gpt-6-luna"` |
 | LLM_REASONING_EFFORT | LLM_REASONING_EFFORT | `"medium"` |
 | EMBEDDING_MODEL | — | `"text-embedding-3-small"` |
 

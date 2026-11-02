@@ -26,7 +26,7 @@ PINECONE_API_KEY = os.environ["PINECONE_API_KEY"]
 PINECONE_INDEX = "humaine"
 
 # LLM settings
-LLM_MODEL = "gpt-5.6-luna"
+LLM_MODEL = "gpt-6-luna"
 EMBEDDING_MODEL = "text-embedding-3-small"
 LLM_REASONING_EFFORT = os.environ.get("LLM_REASONING_EFFORT", "medium")
 
