@@ -31,9 +31,15 @@ Implemented in [classes/user_handler.py](../../classes/user_handler.py). All sta
 | Token metadata | `set_token_metadata`, `get_token_metadata`, `extract_and_store_token_info` | exp, email, roles, policies, etc. |
 | Policies / roles | `set_user_policies`, `get_user_policies`, `set_user_roles`, `get_user_roles` | From token (MinIO policies, Keycloak roles) |
 | Groups | `set_user_groups`, `get_user_groups` | Keycloak `groups` claim (used for HAIC pilot mapping) |
-| Refresh / clear | `should_refresh_token`, `clear_session` | Proactive refresh when exp &lt; 5 min; clear on token expiry |
+| Refresh / clear | `should_refresh_token`, `clear_session` | Proactive refresh when exp &lt; 5 min; on token expiry, drop the token, MinIO credentials, namespaces and token-derived roles/groups/policies |
 
 **`get_or_refresh_minio_credentials()`**: If credentials are invalid or about to expire, tries to refresh. On “token expired” errors it calls **`clear_session()`** and (if possible) sends a “session expired” message so the user re-authenticates.
+
+## Expired Keycloak tokens end the Chainlit login
+
+Chainlit's login cookie (`user_session_timeout`, days) outlives the Keycloak access token stored in `user.metadata["oauth_token"]`. Without a check, refreshing the page restores a session whose token MinIO and Kubeflow reject, and the user only sees “session expired” again.
+
+[utils/session_guard.py](../../utils/session_guard.py) fixes this. `install_session_guard(chainlit_server)` (called in `app.py`) adds a FastAPI `dependency_overrides` entry for Chainlit's `get_current_user`. The override answers **401** when the user's `oauth_token` is a JWT whose `exp` has passed. The UI calls `/user` on page load, gets the 401 and shows the login page, so “refresh the page to log in again” works. Users without a Keycloak token, and tokens that are not JWTs, pass through unchanged. With the SQL data layer, Chainlit returns the persisted user, so the token checked is the one saved at the user's latest login on any device: the same token the session's tools use. The websocket handshake calls `get_current_user` directly and is not covered, but the UI opens it only after `/user` succeeds.
 
 ## MinIO credentials (STS)
 

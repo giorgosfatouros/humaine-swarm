@@ -51,7 +51,9 @@ from utils.keycloak_header_auth import (
     claims_to_identifier,
     validate_bearer_token,
 )
+from utils.session_guard import install_session_guard
 from typing import Optional, Dict
+from chainlit.server import app as chainlit_server
 from chainlit.types import ThreadDict
 import plotly.graph_objects as go
 import plotly.io as pio
@@ -61,6 +63,9 @@ logger = setup_logging('CHAT', level=logging.ERROR)
 logging.getLogger("httpx").setLevel("WARNING")
 
 client = get_openai_client()
+
+# A refresh after the Keycloak token expires must land on the login page
+install_session_guard(chainlit_server)
 
 
 @cl.data_layer

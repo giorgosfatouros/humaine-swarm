@@ -495,13 +495,12 @@ class UserSessionManager:
     @staticmethod
     def clear_session():
         """
-        Clear all user session data to force logout.
-        This is called when the OAuth token expires.
+        Drop the token and everything derived from it, so no tool keeps using it.
+        This is called when the OAuth token expires. Chainlit's UserSession has no
+        clear(); the login itself is ended by utils.session_guard on the next page load.
         """
         logger.info("Clearing user session due to expired token")
-        try:
-            # Clear all session data
-            cl.user_session.clear()
-            logger.info("Session cleared successfully")
-        except Exception as e:
-            logger.error(f"Error clearing session: {e}")
+        for key in ("oauth_token", "minio_credentials", "kubeflow_namespace", "kubeflow_namespaces", "token_metadata"):
+            cl.user_session.set(key, None)
+        for key in ("user_roles", "user_groups", "user_policies"):
+            cl.user_session.set(key, [])
