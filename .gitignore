@@ -200,4 +200,7 @@ evaluation/
 
 .files-for-rag/
 .files/
-kubeflow/
+
+# Pilot dataset and stray Chainlit folders under kubeflow/ (pipelines themselves are tracked)
+kubeflow/Synthetic mistakes/
+kubeflow/**/.chainlit/
