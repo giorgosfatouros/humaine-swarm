@@ -32,8 +32,12 @@ def _spec(*names):
     }
 
 
-def _client(spec):
+USER_NAMESPACES = [{"namespace": "alice", "role": "owner"}]
+
+
+def _client(spec, pipeline_namespace="alice"):
     client = MagicMock()
+    client.get_pipeline.return_value = SimpleNamespace(namespace=pipeline_namespace)
     client.get_pipeline_version.return_value = SimpleNamespace(pipeline_spec=spec)
     client.list_pipeline_versions.return_value = SimpleNamespace(
         pipeline_versions=[SimpleNamespace(pipeline_version_id="ver-latest", pipeline_spec=spec)]
@@ -47,7 +51,7 @@ def _client(spec):
     return client
 
 
-def _run(client, creds=SESSION_CREDS, **kwargs):
+def _run(client, creds=SESSION_CREDS, namespaces=USER_NAMESPACES, session_namespace="alice", **kwargs):
     kwargs.setdefault("experiment_id", "exp-1")
     kwargs.setdefault("job_name", "job")
     kwargs.setdefault("pipeline_id", "pipe-1")
@@ -57,6 +61,10 @@ def _run(client, creds=SESSION_CREDS, **kwargs):
         "agents.code.get_user_kubeflow_client", new=AsyncMock(return_value=client)
     ), patch(
         "agents.code.UserSessionManager.get_or_refresh_minio_credentials", new=get_creds
+    ), patch(
+        "agents.code.UserSessionManager.get_kubeflow_namespaces", return_value=namespaces
+    ), patch(
+        "agents.code.UserSessionManager.get_kubeflow_namespace", return_value=session_namespace
     ):
         result = asyncio.run(run_pipeline.__wrapped__(**kwargs))
     return result, get_creds
@@ -81,6 +89,50 @@ def test_injects_session_credentials_when_spec_declares_them():
         "minio_session_token": "STS-TOKEN",
     }
     assert result["run_id"] == "run-1"
+
+
+@pytest.mark.parametrize(
+    "pipeline_namespace, expected",
+    [("", "shared catalog"), (None, "shared catalog"), ("bob", "namespace 'bob'")],
+)
+def test_keys_not_injected_into_pipelines_outside_own_namespaces(pipeline_namespace, expected):
+    client = _client(MINIO_SPEC, pipeline_namespace=pipeline_namespace)
+
+    result, get_creds = _run(client, params={})
+
+    assert expected in result["error"]
+    assert "alice" in result["error"]
+    client.run_pipeline.assert_not_called()
+    get_creds.assert_not_awaited()
+
+
+def test_keys_not_injected_when_pipeline_namespace_cannot_be_read():
+    client = _client(MINIO_SPEC)
+    client.get_pipeline.side_effect = RuntimeError("403")
+
+    result, get_creds = _run(client, params={})
+
+    assert "could not be checked" in result["error"]
+    client.run_pipeline.assert_not_called()
+    get_creds.assert_not_awaited()
+
+
+def test_session_namespace_used_when_discovery_failed():
+    client = _client(MINIO_SPEC)
+
+    result, _ = _run(client, namespaces=None, session_namespace="alice", params={})
+
+    assert "error" not in result
+    assert client.run_pipeline.call_args.kwargs["params"]["minio_session_token"] == "STS-TOKEN"
+
+
+def test_shared_pipeline_without_credential_params_still_runs():
+    client = _client(_spec("max_depth"), pipeline_namespace="")
+
+    result, _ = _run(client, params={"max_depth": 5})
+
+    assert "error" not in result
+    client.get_pipeline.assert_not_called()
 
 
 def test_foreign_minio_endpoint_is_rejected_when_injecting():

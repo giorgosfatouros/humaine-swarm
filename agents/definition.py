@@ -208,8 +208,10 @@ functions = [
             "description": (
                 "Run a Kubeflow pipeline with specified parameters. MinIO credential params "
                 "(minio_access_key, minio_secret_key, minio_session_token) are filled automatically "
-                "from the user's session when the pipeline declares them: never ask the user for "
-                "them and leave them out of params."
+                "from the user's session when the pipeline declares them and lives in the user's own "
+                "namespace: never ask the user for them and leave them out of params. Shared-catalog "
+                "pipelines that need MinIO keys are refused; then suggest registering a copy in the "
+                "user's namespace."
             ),
             "parameters": {
                 "type": "object",

@@ -1490,6 +1490,26 @@ def _normalize_minio_endpoint(endpoint: str) -> str:
     return endpoint.strip().split("://", 1)[-1].rstrip("/").lower()
 
 
+def _user_kubeflow_namespaces() -> set[str]:
+    """Profile namespaces the user belongs to (the session namespace if discovery failed)."""
+    namespaces = UserSessionManager.get_kubeflow_namespaces()
+    if namespaces is not None:
+        return {entry["namespace"] for entry in namespaces if entry.get("namespace")}
+    namespace = UserSessionManager.get_kubeflow_namespace()
+    return {namespace} if namespace else set()
+
+
+def _pipeline_namespace(kf_client, pipeline_id: str) -> Optional[str]:
+    """Namespace a stored pipeline lives in: "" for the shared catalog, None if it cannot be read."""
+    try:
+        pipeline = kf_client.get_pipeline(pipeline_id=pipeline_id)
+    except Exception as e:
+        logger.warning(f"Could not read namespace of pipeline {pipeline_id}: {str(e)}")
+        return None
+    namespace = getattr(pipeline, "namespace", None)
+    return namespace if isinstance(namespace, str) else ""
+
+
 def _platform_minio_endpoint() -> str:
     """The configured MinIO endpoint as pipelines expect it (http:// prefix when not TLS)."""
     host = _normalize_minio_endpoint(MINIO_ENDPOINT)
@@ -1596,6 +1616,24 @@ async def run_pipeline(
             missing = [name for name in MINIO_CREDENTIAL_PARAMS if not params.get(name)]
             input_names = _pipeline_input_names(kf_client, pipeline_id, version_id) if missing else set()
             if missing and "minio_session_token" in input_names:
+                # Pipeline code can send its parameters anywhere, so session keys only go to pipelines in
+                # the user's own namespaces, never to shared-catalog pipelines written by someone else.
+                pipeline_namespace = _pipeline_namespace(kf_client, pipeline_id)
+                own_namespaces = _user_kubeflow_namespaces()
+                if pipeline_namespace not in own_namespaces:
+                    where = (
+                        "could not be checked" if pipeline_namespace is None
+                        else "is in the shared catalog" if not pipeline_namespace
+                        else f"is in namespace '{pipeline_namespace}'"
+                    )
+                    return {
+                        "error": f"This pipeline {where}. Your MinIO session keys are only passed to "
+                                 "pipelines in your own Kubeflow namespace "
+                                 f"({', '.join(sorted(own_namespaces)) or 'none found'}), so it was not run.",
+                        "hint": "Register a copy in your namespace (Pipeline builder: attach its YAML and "
+                                "call create_pipeline_draft / upload_pipeline_draft), or ask its owner to "
+                                "publish it to your namespace.",
+                    }
                 # Session keys may only go to the platform MinIO, never to an endpoint chosen by the caller.
                 if "minio_endpoint" in input_names:
                     requested = params.get("minio_endpoint")
