@@ -17,7 +17,6 @@ import pytest
 from agents.code import predict_auto_correction
 from utils.auto_correction_model import (
     FEATURE_NAMES,
-    MAX_MODEL_BYTES,
     MAX_TREE_DEPTH,
     MAX_TREES,
     featurize,
@@ -155,9 +154,17 @@ def test_validate_rejects_malformed_models(model):
 
 
 NEW_RUN, OLD_RUN, LEGACY_RUN = "run-new", "run-old", "run-legacy"
-FAILED_RUN, PLANTED_RUN = "run-failed", "run-planted"
-# Kubeflow's runs in the user's namespace, newest first. PLANTED_RUN is only a MinIO folder.
-KUBEFLOW_RUNS = [(FAILED_RUN, "FAILED"), (NEW_RUN, "SUCCEEDED"), (OLD_RUN, "SUCCEEDED"), (LEGACY_RUN, "SUCCEEDED")]
+FAILED_RUN, PLANTED_RUN, OTHER_PIPELINE_RUN = "run-failed", "run-planted", "run-other-pipeline"
+PIPELINE_ID = "pipeline-auto-correction"
+# Kubeflow's runs in the user's namespace, newest first. PLANTED_RUN is only a MinIO folder;
+# OTHER_PIPELINE_RUN is a real run of another pipeline whose ID was reused as a folder name.
+KUBEFLOW_RUNS = [
+    (OTHER_PIPELINE_RUN, "SUCCEEDED", "pipeline-other"),
+    (FAILED_RUN, "FAILED", PIPELINE_ID),
+    (NEW_RUN, "SUCCEEDED", PIPELINE_ID),
+    (OLD_RUN, "SUCCEEDED", PIPELINE_ID),
+    (LEGACY_RUN, "SUCCEEDED", PIPELINE_ID),
+]
 
 
 def _objects(rf=None):
@@ -165,6 +172,7 @@ def _objects(rf=None):
         return f"kubeflow/{PIPELINE}/{run}/models/{name}"
     return {
         at(PLANTED_RUN, "random_forest.json"): json.dumps(_rf_model()),
+        at(OTHER_PIPELINE_RUN, "random_forest.json"): json.dumps(_rf_model()),
         at(FAILED_RUN, "random_forest.json"): json.dumps(_rf_model()),
         at(OLD_RUN, "random_forest.json"): json.dumps(_rf_model()),
         at(NEW_RUN, "random_forest.json"): json.dumps(rf if rf is not None else _rf_model()),
@@ -188,14 +196,15 @@ def _minio(objects):
 
     client.list_objects.side_effect = list_objects
     client.get_object.side_effect = get_object
-    client.stat_object.side_effect = lambda bucket, name: SimpleNamespace(size=len(objects[name].encode()))
     return client
 
 
 def _kfp(runs=KUBEFLOW_RUNS):
     client = MagicMock()
     client.list_runs.return_value = SimpleNamespace(
-        runs=[SimpleNamespace(run_id=run_id, state=state) for run_id, state in runs]
+        runs=[SimpleNamespace(run_id=run_id, state=state,
+                              pipeline_version_reference=SimpleNamespace(pipeline_id=pipeline_id))
+              for run_id, state, pipeline_id in runs]
     )
     return client
 
@@ -204,6 +213,8 @@ def _predict(minio, kfp=None, **kwargs):
     with patch("agents.code.get_user_minio_client", new=AsyncMock(return_value=minio)), patch(
         "agents.code.get_user_kubeflow_client", new=AsyncMock(return_value=kfp or _kfp())
     ), patch("agents.code.resolve_kubeflow_namespace", return_value=("smart-cities", None)), patch(
+        "agents.code.find_pipeline_id", return_value=PIPELINE_ID
+    ), patch(
         "agents.code._kubeflow_run_id_for_name", new=AsyncMock(return_value=None)
     ):
         return asyncio.run(predict_auto_correction.__wrapped__(**kwargs))
@@ -219,7 +230,7 @@ def test_predicts_with_the_newest_succeeded_run_and_both_models():
     minio, kfp = _minio(_objects()), _kfp()
     result = _predict(minio, kfp, entries=ENTRIES)
 
-    # Not the failed run, and not the MinIO folder no Kubeflow run produced
+    # Not another pipeline's run, not the failed run, not a folder no Kubeflow run produced
     assert result["run_name"] == NEW_RUN
     assert kfp.list_runs.call_args.kwargs["namespace"] == "smart-cities"
     assert sorted(result["models"]) == ["Logistic Regression", "Random Forest"]
@@ -235,8 +246,9 @@ def test_predicts_with_the_newest_succeeded_run_and_both_models():
 
 
 def test_no_default_run_when_kubeflow_knows_none_with_models():
-    result = _predict(_minio(_objects()), _kfp(runs=[(FAILED_RUN, "FAILED"), (LEGACY_RUN, "SUCCEEDED")]),
-                      entries=ENTRIES)
+    runs = [(OTHER_PIPELINE_RUN, "SUCCEEDED", "pipeline-other"), (FAILED_RUN, "FAILED", PIPELINE_ID),
+            (LEGACY_RUN, "SUCCEEDED", PIPELINE_ID)]
+    result = _predict(_minio(_objects()), _kfp(runs=runs), entries=ENTRIES)
     assert "pass run_name" in result["error"]
 
 
@@ -259,15 +271,25 @@ def test_tampered_model_is_skipped_not_evaluated():
     assert result["skipped_models"][0]["path"].endswith("random_forest.json")
 
 
-def test_oversized_model_file_is_skipped_before_parsing():
-    minio = _minio(_objects())
-    minio.stat_object.side_effect = lambda bucket, name: SimpleNamespace(
-        size=MAX_MODEL_BYTES + 1 if name.endswith("random_forest.json") else 100
-    )
-    result = _predict(minio, entries=ENTRIES)
+def test_oversized_model_file_is_refused_by_bytes_read():
+    limit = 2000
+    objects = _objects()
+    rf_path = f"kubeflow/{PIPELINE}/{NEW_RUN}/models/random_forest.json"
+    objects[rf_path] += " " * limit  # still valid JSON, but over the limit
+    with patch("agents.code.MAX_MODEL_BYTES", limit):
+        result = _predict(_minio(objects), entries=ENTRIES)
     assert result["models"] == ["Logistic Regression"]
     assert "limit" in result["skipped_models"][0]["reason"]
-    assert not any(c.args[1].endswith("random_forest.json") for c in minio.get_object.call_args_list)
+
+
+def test_pipeline_missing_from_namespace_needs_explicit_run():
+    with patch("agents.code.find_pipeline_id", return_value=None):
+        minio, kfp = _minio(_objects()), _kfp()
+        with patch("agents.code.get_user_minio_client", new=AsyncMock(return_value=minio)), patch(
+            "agents.code.get_user_kubeflow_client", new=AsyncMock(return_value=kfp)
+        ), patch("agents.code.resolve_kubeflow_namespace", return_value=("smart-cities", None)):
+            result = asyncio.run(predict_auto_correction.__wrapped__(entries=ENTRIES))
+    assert "was not found" in result["error"]
 
 
 @pytest.mark.parametrize("entries, message", [

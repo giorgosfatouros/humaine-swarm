@@ -1282,11 +1282,11 @@ def _portable_model_objects(
     return {run: sorted(names) for run, names in by_run.items()}
 
 
-async def _newest_succeeded_run(run_ids: set) -> tuple[Optional[str], Optional[str]]:
-    """Newest succeeded Kubeflow run in the user's namespace whose ID is in run_ids.
+async def _newest_succeeded_run(run_ids: set, pipeline_name: str) -> tuple[Optional[str], Optional[str]]:
+    """Newest succeeded Kubeflow run of pipeline_name in the user's namespace whose ID is in run_ids.
 
     The default run comes from Kubeflow, not from the newest-looking MinIO folder, so a
-    folder that no real run produced is never picked.
+    folder that no real run of this pipeline produced is never picked.
 
     Returns:
         (run_id, None) on success, or (None, error message) otherwise.
@@ -1295,9 +1295,17 @@ async def _newest_succeeded_run(run_ids: set) -> tuple[Optional[str], Optional[s
     if namespace_error:
         return None, namespace_error
     kf_client = await get_user_kubeflow_client()
+    pipeline_id = find_pipeline_id(kf_client, pipeline_name, namespace)
+    if not pipeline_id:
+        return None, (
+            f"Pipeline '{pipeline_name}' was not found in your Kubeflow namespace '{namespace}'. "
+            f"Pass run_name with the run_id to use."
+        )
     response = kf_client.list_runs(namespace=namespace, sort_by="created_at desc", page_size=100)
     for run in getattr(response, "runs", None) or []:
-        if run.run_id in run_ids and str(getattr(run, "state", "")).upper() == "SUCCEEDED":
+        run_pipeline_id = getattr(getattr(run, "pipeline_version_reference", None), "pipeline_id", None)
+        if (run.run_id in run_ids and run_pipeline_id == pipeline_id
+                and str(getattr(run, "state", "")).upper() == "SUCCEEDED"):
             return run.run_id, None
     return None, (
         f"None of your recent succeeded Kubeflow runs in namespace '{namespace}' published portable "
@@ -1307,10 +1315,23 @@ async def _newest_succeeded_run(run_ids: set) -> tuple[Optional[str], Optional[s
 
 def _load_portable_model(client: Minio, bucket_name: str, object_name: str) -> Dict[str, Any]:
     """Read and validate one models/*.json file, refusing oversized files before parsing. Raises ValueError."""
-    size = client.stat_object(bucket_name, object_name).size
-    if size > MAX_MODEL_BYTES:
-        raise ValueError(f"model file is {size} bytes; the limit is {MAX_MODEL_BYTES}")
-    return validate_portable_model(_read_json_object(client, bucket_name, object_name))
+    try:
+        response = client.get_object(bucket_name, object_name)
+    except Exception as e:
+        raise ValueError(f"could not read the model file: {str(e)}")
+    try:
+        # Limit the bytes actually read: a size checked beforehand could change before the download
+        body = response.read(MAX_MODEL_BYTES + 1)
+    finally:
+        response.close()
+        response.release_conn()
+    if len(body) > MAX_MODEL_BYTES:
+        raise ValueError(f"model file is larger than the {MAX_MODEL_BYTES}-byte limit")
+    try:
+        data = json.loads(body)
+    except ValueError:
+        raise ValueError("model file is not valid JSON")
+    return validate_portable_model(data)
 
 
 def _score_entries(models: List[Dict[str, Any]], rows: List[Dict[str, str]]) -> List[Dict[str, Any]]:
@@ -1403,7 +1424,7 @@ async def predict_auto_correction(
                     f"No run of '{pipeline_name}' in bucket '{bucket_name}' has portable models yet. "
                     f"Run the latest pipeline version first."
                 )}
-            run_folder, run_error = await _newest_succeeded_run(set(by_run))
+            run_folder, run_error = await _newest_succeeded_run(set(by_run), pipeline_name)
             if run_error:
                 return {"error": run_error}
             model_objects = by_run[run_folder]
