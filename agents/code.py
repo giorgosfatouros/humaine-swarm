@@ -1490,13 +1490,27 @@ def _normalize_minio_endpoint(endpoint: str) -> str:
     return endpoint.strip().split("://", 1)[-1].rstrip("/").lower()
 
 
-def _user_kubeflow_namespaces() -> set[str]:
-    """Profile namespaces the user belongs to (the session namespace if discovery failed)."""
-    namespaces = UserSessionManager.get_kubeflow_namespaces()
-    if namespaces is not None:
-        return {entry["namespace"] for entry in namespaces if entry.get("namespace")}
-    namespace = UserSessionManager.get_kubeflow_namespace()
-    return {namespace} if namespace else set()
+def _member_kubeflow_namespaces() -> set[str]:
+    """Profile namespaces the dashboard confirms the user belongs to (owner or contributor).
+
+    Empty if discovery failed. The token-claim namespace is not included: it is a guess from
+    the Keycloak token, not confirmed membership.
+    """
+    namespaces = UserSessionManager.get_kubeflow_namespaces() or []
+    return {
+        entry["namespace"] for entry in namespaces
+        if entry.get("namespace") and entry.get("role") != "token-claim"
+    }
+
+
+def _version_belongs_to(kf_client, pipeline_id: str, version_id: str) -> bool:
+    """True if version_id is a version of pipeline_id (False if it cannot be read)."""
+    try:
+        version = kf_client.get_pipeline_version(pipeline_id=pipeline_id, pipeline_version_id=version_id)
+    except Exception as e:
+        logger.warning(f"Could not read pipeline version {version_id}: {str(e)}")
+        return False
+    return getattr(version, "pipeline_id", None) == pipeline_id
 
 
 def _pipeline_namespace(kf_client, pipeline_id: str) -> Optional[str]:
@@ -1617,9 +1631,16 @@ async def run_pipeline(
             input_names = _pipeline_input_names(kf_client, pipeline_id, version_id) if missing else set()
             if missing and "minio_session_token" in input_names:
                 # Pipeline code can send its parameters anywhere, so session keys only go to pipelines in
-                # the user's own namespaces, never to shared-catalog pipelines written by someone else.
+                # the user's profile namespaces, never to shared-catalog pipelines written by someone else.
+                # The check must cover the version that actually runs, not just the named pipeline.
+                if not _version_belongs_to(kf_client, pipeline_id, version_id):
+                    return {
+                        "error": f"Pipeline version {version_id} does not belong to pipeline {pipeline_id} "
+                                 "(or could not be read), so it was not run. Omit version_id to run the "
+                                 "latest version."
+                    }
                 pipeline_namespace = _pipeline_namespace(kf_client, pipeline_id)
-                own_namespaces = _user_kubeflow_namespaces()
+                own_namespaces = _member_kubeflow_namespaces()
                 if pipeline_namespace not in own_namespaces:
                     where = (
                         "could not be checked" if pipeline_namespace is None
@@ -1628,8 +1649,8 @@ async def run_pipeline(
                     )
                     return {
                         "error": f"This pipeline {where}. Your MinIO session keys are only passed to "
-                                 "pipelines in your own Kubeflow namespace "
-                                 f"({', '.join(sorted(own_namespaces)) or 'none found'}), so it was not run.",
+                                 "pipelines in your own Kubeflow profile namespaces "
+                                 f"({', '.join(sorted(own_namespaces)) or 'none confirmed'}), so it was not run.",
                         "hint": "Register a copy in your namespace (Pipeline builder: attach its YAML and "
                                 "call create_pipeline_draft / upload_pipeline_draft), or ask its owner to "
                                 "publish it to your namespace.",

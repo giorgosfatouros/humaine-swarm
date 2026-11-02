@@ -38,7 +38,7 @@ USER_NAMESPACES = [{"namespace": "alice", "role": "owner"}]
 def _client(spec, pipeline_namespace="alice"):
     client = MagicMock()
     client.get_pipeline.return_value = SimpleNamespace(namespace=pipeline_namespace)
-    client.get_pipeline_version.return_value = SimpleNamespace(pipeline_spec=spec)
+    client.get_pipeline_version.return_value = SimpleNamespace(pipeline_id="pipe-1", pipeline_spec=spec)
     client.list_pipeline_versions.return_value = SimpleNamespace(
         pipeline_versions=[SimpleNamespace(pipeline_version_id="ver-latest", pipeline_spec=spec)]
     )
@@ -117,13 +117,43 @@ def test_keys_not_injected_when_pipeline_namespace_cannot_be_read():
     get_creds.assert_not_awaited()
 
 
-def test_session_namespace_used_when_discovery_failed():
+@pytest.mark.parametrize(
+    "namespaces",
+    [
+        None,  # discovery failed: the token-claim namespace alone is not trusted
+        [{"namespace": "alice", "role": "token-claim"}],
+    ],
+)
+def test_keys_not_injected_without_confirmed_membership(namespaces):
     client = _client(MINIO_SPEC)
 
-    result, _ = _run(client, namespaces=None, session_namespace="alice", params={})
+    result, get_creds = _run(client, namespaces=namespaces, params={})
+
+    assert "none confirmed" in result["error"]
+    client.run_pipeline.assert_not_called()
+    get_creds.assert_not_awaited()
+
+
+def test_keys_injected_into_contributor_namespace():
+    client = _client(MINIO_SPEC)
+
+    result, _ = _run(client, namespaces=[{"namespace": "alice", "role": "contributor"}], params={})
 
     assert "error" not in result
     assert client.run_pipeline.call_args.kwargs["params"]["minio_session_token"] == "STS-TOKEN"
+
+
+def test_keys_not_injected_when_version_belongs_to_another_pipeline():
+    client = _client(MINIO_SPEC)
+    client.get_pipeline_version.return_value = SimpleNamespace(
+        pipeline_id="someone-elses-pipeline", pipeline_spec=MINIO_SPEC
+    )
+
+    result, get_creds = _run(client, params={})
+
+    assert "does not belong" in result["error"]
+    client.run_pipeline.assert_not_called()
+    get_creds.assert_not_awaited()
 
 
 def test_shared_pipeline_without_credential_params_still_runs():

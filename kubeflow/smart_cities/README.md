@@ -42,7 +42,7 @@ The confusion matrix has rows = actual class and columns = predicted class. Beca
 
 ## Credentials
 
-The pipeline takes `minio_access_key`, `minio_secret_key` and `minio_session_token` as parameters. When the assistant launches the pipeline, `run_pipeline` fills them with the chatting user's own short-lived MinIO STS keys, so nobody types a password. These temporary keys appear in the run's parameter list and in each step's logs in the Kubeflow UI, and expire with the session, which is fine for a run of a few minutes. The assistant only does this for pipelines in the user's own Kubeflow namespace, so the pipeline must be uploaded privately (the default below); a `--shared` copy cannot be launched from the assistant. To run the pipeline from the Kubeflow UI, paste STS keys yourself.
+The pipeline takes `minio_access_key`, `minio_secret_key` and `minio_session_token` as parameters. When the assistant launches the pipeline, `run_pipeline` fills them with the chatting user's own short-lived MinIO STS keys, so nobody types a password. These temporary keys appear in the run's parameter list and in each step's logs in the Kubeflow UI, and expire with the session, which is fine for a run of a few minutes. The assistant only does this for pipelines in one of the user's own Kubeflow profile namespaces, so the pipeline must be uploaded privately (the default below); a `--shared` copy cannot be launched from the assistant. To run the pipeline from the Kubeflow UI, paste STS keys yourself.
 
 ## Build and publish
 
